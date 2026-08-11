@@ -1,70 +1,120 @@
 package com.example.medsreminder.alarm
 
+import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import com.example.medsreminder.MainActivity
+import com.example.medsreminder.data.AlarmOccurrenceEntity
+import com.example.medsreminder.data.OccurrenceStatus
 
 class AlarmScheduler(private val context: Context) {
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
-    private val store = AlarmStore(context)
 
     fun canScheduleExactAlarms(): Boolean = alarmManager.canScheduleExactAlarms()
 
-    fun schedule(triggerAtMillis: Long): Result<Unit> = runCatching {
-        require(triggerAtMillis > System.currentTimeMillis()) {
-            "Alarm time must be in the future"
-        }
-        check(canScheduleExactAlarms()) {
-            "Exact alarm access is not granted"
-        }
-
-        store.save(triggerAtMillis)
-        try {
-            alarmManager.setAlarmClock(
-                AlarmManager.AlarmClockInfo(triggerAtMillis, alarmDetailsPendingIntent()),
-                alarmPendingIntent(),
-            )
-        } catch (error: Throwable) {
-            store.clear()
-            throw error
-        }
+    fun requiredPresentationReady(): Boolean {
+        AlarmRingingService.ensureNotificationChannel(context)
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        val runtimePermissionReady = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val channel = notificationManager.getNotificationChannel(AlarmRingingService.CHANNEL_ID)
+        return runtimePermissionReady &&
+            notificationManager.areNotificationsEnabled() &&
+            channel != null &&
+            channel.importance >= NotificationManager.IMPORTANCE_HIGH
     }
 
-    fun cancel() {
-        alarmManager.cancel(alarmPendingIntent())
-        store.clear()
+    fun projectionReady(): Boolean = canScheduleExactAlarms() && requiredPresentationReady()
+
+    fun fullScreenAllowed(): Boolean {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            manager.canUseFullScreenIntent()
     }
 
-    fun rescheduleStoredFutureAlarm(nowMillis: Long = System.currentTimeMillis()): Boolean {
-        val triggerAtMillis = store.scheduledAtMillis() ?: return false
-        if (triggerAtMillis <= nowMillis) {
-            store.clear()
-            return false
-        }
-        return schedule(triggerAtMillis).isSuccess
+    fun registerOccurrence(occurrence: AlarmOccurrenceEntity, medicationId: Long): Result<Unit> = runCatching {
+        require(occurrence.status == OccurrenceStatus.SCHEDULED)
+        require(occurrence.scheduledAtEpochMillis > System.currentTimeMillis())
+        check(canScheduleExactAlarms()) { "Exact alarm access is not granted" }
+        alarmManager.setAlarmClock(
+            AlarmManager.AlarmClockInfo(
+                occurrence.scheduledAtEpochMillis,
+                detailsPendingIntent(medicationId),
+            ),
+            firePendingIntent(occurrence.id),
+        )
     }
 
-    private fun alarmPendingIntent(): PendingIntent = PendingIntent.getBroadcast(
+    fun cancelOccurrence(occurrenceId: String) {
+        alarmManager.cancel(firePendingIntent(occurrenceId))
+    }
+
+    fun firePendingIntent(occurrenceId: String): PendingIntent = PendingIntent.getBroadcast(
         context,
-        ALARM_REQUEST_CODE,
-        Intent(context, AlarmReceiver::class.java).setAction(AlarmReceiver.ACTION_FIRE),
+        0,
+        Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_FIRE
+            data = occurrenceUri(occurrenceId)
+        },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    private fun alarmDetailsPendingIntent(): PendingIntent = PendingIntent.getActivity(
+    private fun detailsPendingIntent(medicationId: Long): PendingIntent = PendingIntent.getActivity(
         context,
-        DETAILS_REQUEST_CODE,
+        0,
         Intent(context, MainActivity::class.java).apply {
+            action = ACTION_VIEW_MEDICATION
+            data = Uri.parse("medsreminder://medication/$medicationId")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    fun cleanUpLegacyM0Alarm() {
+        val legacyIntent = Intent(context, AlarmReceiver::class.java).setAction(LEGACY_M0_FIRE_ACTION)
+        val legacyPendingIntent = PendingIntent.getBroadcast(
+            context,
+            100,
+            legacyIntent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        if (legacyPendingIntent != null) {
+            alarmManager.cancel(legacyPendingIntent)
+            legacyPendingIntent.cancel()
+        }
+        context.createDeviceProtectedStorageContext()
+            .getSharedPreferences("m0_alarm", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
+
     companion object {
-        private const val ALARM_REQUEST_CODE = 100
-        private const val DETAILS_REQUEST_CODE = 101
+        const val DELIVERY_GRACE_MILLIS = 2 * 60 * 1000L
+        private const val ACTION_VIEW_MEDICATION = "com.example.medsreminder.action.VIEW_MEDICATION"
+        private const val LEGACY_M0_FIRE_ACTION = "com.example.medsreminder.action.FIRE_ALARM"
+
+        fun occurrenceUri(occurrenceId: String): Uri =
+            Uri.parse("medsreminder://alarm/occurrence/$occurrenceId")
+
+        fun occurrenceId(intent: Intent): String? {
+            val uri = intent.data ?: return null
+            if (uri.scheme != "medsreminder" || uri.host != "alarm") return null
+            val segments = uri.pathSegments
+            return segments.takeIf { it.size == 2 && it[0] == "occurrence" }?.get(1)
+        }
+
+        fun isWithinDeliveryGrace(scheduledAtMillis: Long, nowMillis: Long): Boolean =
+            nowMillis >= scheduledAtMillis - 1_000L &&
+                nowMillis - scheduledAtMillis <= DELIVERY_GRACE_MILLIS
+
+        fun routineExpiryCutoff(nowMillis: Long): Long =
+            nowMillis - DELIVERY_GRACE_MILLIS - 1L
     }
 }
-

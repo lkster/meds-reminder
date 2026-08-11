@@ -1,48 +1,59 @@
-# Meds Reminder M0
+# Meds Reminder M1
 
-This repository is an Android alarm-behavior spike. It intentionally supports one test alarm and
-does not contain medication-management features.
+Meds Reminder is an Android-first, local medication reminder. M1 supports multiple medications,
+optional instructions, enable/disable, and one or more fixed local times per medication. Each time
+recurs daily and can be resolved as Taken, Snoozed for five minutes, or Skipped.
 
-## Alarm notification architecture
+## Alarm behavior
 
-`AlarmRingingService` is the only owner of alarm sound and vibration. The notification channel is
-high importance and the notification uses the alarm category, but the channel does not independently
-play sound or vibrate.
+Room is the authoritative logical state. Each medication, reminder time, and concrete BASE or
+SNOOZE occurrence has its own stable identity. AlarmManager registrations are a rebuildable
+projection of scheduled occurrences; receivers reject stale or unknown occurrence UUIDs.
 
-Android notification channel behavior is immutable after a channel is created. Final M0 validation
-uses the fresh channel ID `medication_alarm_m0_2` so devices do not retain settings from earlier
-experiments.
+`AlarmRingingService` remains the sole owner of continuous sound, vibration, the wake lock,
+foreground-service state, the alarm notification, and cleanup. The high-importance notification
+channel intentionally has no channel-owned sound or vibration. A single persisted ringing session
+presents due occurrences sequentially, and its temporary ten-minute safety timeout resets for each
+presented occurrence.
 
-When comparing channel behavior, uninstall/reinstall the app or clear its notification settings if
-the device retains old test channels. Samsung S23 remains the source of truth for heads-up and
-lockscreen behavior.
+Normal delivery accepts an occurrence up to the explicit two-minute `DELIVERY_GRACE_MILLIS` policy.
+This protects an AlarmManager broadcast already in flight during routine reconciliation while still
+rejecting materially late delivery. Reboot/package-update/exact-access recovery does not catch up
+past medication alarms; it expires them and restores the next future daily occurrences.
+
+## Direct Boot limitation
+
+Medication data is stored in credential-protected Room storage. M1 deliberately does not duplicate
+medication names or schedules into device-protected storage. `LOCKED_BOOT_COMPLETED` therefore does
+not access Room or restore medication alarms. `BOOT_COMPLETED` reconciles after the first unlock.
+
+This is a known temporary M1 reliability regression relative to the M0 technical spike, not the
+intended final production behavior: a medication alarm due after reboot but before first unlock is
+not delivered. A later reliability milestone must address this explicitly.
 
 ## Samsung One UI finding
 
-- Samsung **Brief** pop-up mode shows the unlocked alarm as a compact, temporary heads-up; actions
-  remain available after manually expanding the notification shade.
-- The app-level **Detailed** override immediately shows the full heads-up with Taken, Snooze, and
-  Skip: **Apps → Meds Reminder → Notifications → Pop-up notification style → Detailed**.
-- This behavior appears to be controlled by One UI. The app provides a standard Android notification
-  settings shortcut, but does not assume the Detailed override can be enforced through public APIs.
+- Samsung **Brief** pop-up mode may hide the unlocked alarm actions until the notification shade is
+  expanded.
+- The per-app **Detailed** override immediately exposes Taken, Snooze, and Skip: **Apps -> Meds
+  Reminder -> Notifications -> Pop-up notification style -> Detailed**.
+- The app opens only public Android notification settings and does not try to force this OEM option.
 
-## Emulator regression check
+## Build and validation
 
-Build and install the debug APK, then grant the special alarm access in the app's capability panel:
+Run the automated checks from the repository root:
 
 ```powershell
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
-adb install -r .\app\build\outputs\apk\debug\app-debug.apk
-adb shell am start -n com.example.medsreminder/.MainActivity
+.\.tools\gradle-9.1.0\bin\gradle.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 ```
 
-Use **Schedule in 10 seconds** to verify notification delivery, action handling, full-screen behavior,
-and cleanup. Emulator results are useful for regression testing but do not replace Samsung testing.
+The instrumented Room test still needs an emulator or connected device:
 
-## Future work after M0
+```powershell
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+.\.tools\gradle-9.1.0\bin\gradle.bat connectedDebugAndroidTest
+```
 
-- Custom alarm sound.
-- Vibration enable/disable and patterns.
-- Configurable snooze duration.
-- Volume-button snooze.
-- Investigation of power/lock-button snooze behavior.
+Emulator validation covers CRUD, edit/disable/delete cancellation, reboot reconciliation, snooze,
+queue advancement, and resource cleanup. Samsung S23 validation remains required for lock-screen
+full-screen presentation, unlocked heads-up behavior, task restoration, and OEM notification UI.

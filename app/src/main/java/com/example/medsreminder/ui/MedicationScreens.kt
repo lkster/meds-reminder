@@ -1,0 +1,220 @@
+package com.example.medsreminder.ui
+
+import android.app.TimePickerDialog
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.example.medsreminder.data.MedicationWithTimes
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+
+data class EditorTime(val id: Long?, val minuteOfDay: Int)
+
+data class EditorDraft(
+    val id: Long?,
+    val name: String,
+    val instructions: String,
+    val enabled: Boolean,
+    val times: List<EditorTime>,
+) {
+    companion object {
+        fun new() = EditorDraft(null, "", "", true, listOf(EditorTime(null, 8 * 60)))
+
+        fun from(item: MedicationWithTimes) = EditorDraft(
+            id = item.medication.id,
+            name = item.medication.name,
+            instructions = item.medication.instructions.orEmpty(),
+            enabled = item.medication.enabled,
+            times = item.reminderTimes.sortedBy { it.minuteOfDay }
+                .map { EditorTime(it.id, it.minuteOfDay) },
+        )
+    }
+}
+
+data class CapabilityItem(
+    val title: String,
+    val ready: Boolean,
+    val detail: String,
+    val actionLabel: String,
+    val onAction: () -> Unit,
+)
+
+@Composable
+fun MedicationListScreen(
+    medications: List<MedicationWithTimes>,
+    capabilityItems: List<CapabilityItem>,
+    showSamsungGuidance: Boolean,
+    onSamsungSettings: () -> Unit,
+    onAdd: () -> Unit,
+    onEdit: (MedicationWithTimes) -> Unit,
+    onToggle: (MedicationWithTimes, Boolean) -> Unit,
+    onDelete: (MedicationWithTimes) -> Unit,
+) {
+    var deleteCandidate by remember { mutableStateOf<MedicationWithTimes?>(null) }
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
+        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
+        if (medications.isEmpty()) Text("No medications yet.")
+        medications.forEach { item ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(item.medication.name, style = MaterialTheme.typography.titleLarge)
+                        Switch(
+                            checked = item.medication.enabled,
+                            onCheckedChange = { onToggle(item, it) },
+                        )
+                    }
+                    item.medication.instructions?.let { Text(it) }
+                    Text(item.reminderTimes.sortedBy { it.minuteOfDay }.joinToString(" · ") {
+                        formatMinute(it.minuteOfDay)
+                    })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onEdit(item) }) { Text("Edit") }
+                        TextButton(onClick = { deleteCandidate = item }) { Text("Delete") }
+                    }
+                }
+            }
+        }
+
+        Text("Alarm capabilities", style = MaterialTheme.typography.titleLarge)
+        capabilityItems.forEach { capability ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(capability.title, style = MaterialTheme.typography.titleMedium)
+                        Text(if (capability.ready) "Ready" else "Action needed")
+                    }
+                    Text(capability.detail, style = MaterialTheme.typography.bodySmall)
+                    if (!capability.ready) {
+                        OutlinedButton(onClick = capability.onAction) { Text(capability.actionLabel) }
+                    }
+                }
+            }
+        }
+        if (showSamsungGuidance) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Samsung unlocked alarm actions", style = MaterialTheme.typography.titleMedium)
+                    Text("For immediate actions, set this app's pop-up notification style to Detailed.")
+                    OutlinedButton(onClick = onSamsungSettings) { Text("Open notification settings") }
+                }
+            }
+        }
+    }
+
+    deleteCandidate?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("Delete ${item.medication.name}?") },
+            text = { Text("Its reminder times and pending alarms will be removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteCandidate = null
+                    onDelete(item)
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+fun MedicationEditorScreen(
+    draft: EditorDraft,
+    onDraftChange: (EditorDraft) -> Unit,
+    onSave: (EditorDraft) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            if (draft.id == null) "Add medication" else "Edit medication",
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        OutlinedTextField(
+            value = draft.name,
+            onValueChange = { onDraftChange(draft.copy(name = it)) },
+            label = { Text("Medication name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = draft.instructions,
+            onValueChange = { onDraftChange(draft.copy(instructions = it)) },
+            label = { Text("Dose or instructions (optional)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Enabled", style = MaterialTheme.typography.titleMedium)
+            Switch(draft.enabled, { onDraftChange(draft.copy(enabled = it)) })
+        }
+        Text("Daily reminder times", style = MaterialTheme.typography.titleMedium)
+        draft.times.forEachIndexed { index, time ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = {
+                    TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            val changed = draft.times.toMutableList()
+                            changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
+                            onDraftChange(draft.copy(times = changed))
+                        },
+                        time.minuteOfDay / 60,
+                        time.minuteOfDay % 60,
+                        true,
+                    ).show()
+                }) { Text(formatMinute(time.minuteOfDay)) }
+                if (draft.times.size > 1) {
+                    TextButton(onClick = {
+                        onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
+                    }) { Text("Remove") }
+                }
+            }
+        }
+        OutlinedButton(onClick = {
+            val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
+            onDraftChange(draft.copy(times = draft.times + EditorTime(null, nextMinute)))
+        }) { Text("Add another time") }
+        Button(onClick = { onSave(draft) }, modifier = Modifier.fillMaxWidth()) { Text("Save") }
+        OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+    }
+}
+
+private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
+
+private fun formatMinute(minuteOfDay: Int): String =
+    TIME_FORMATTER.format(LocalTime.of(minuteOfDay / 60, minuteOfDay % 60))

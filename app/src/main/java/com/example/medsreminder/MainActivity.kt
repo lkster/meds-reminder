@@ -1,9 +1,9 @@
 package com.example.medsreminder
 
 import android.Manifest
-import android.content.ActivityNotFoundException
 import android.app.AlarmManager
 import android.app.NotificationManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,259 +15,260 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import androidx.room.withTransaction
 import com.example.medsreminder.alarm.AlarmRingingService
+import com.example.medsreminder.alarm.AlarmReconciler
 import com.example.medsreminder.alarm.AlarmScheduler
-import com.example.medsreminder.alarm.AlarmStore
-import java.time.Instant
+import com.example.medsreminder.alarm.ReconciliationMode
+import com.example.medsreminder.data.AppDatabase
+import com.example.medsreminder.data.MedicationEntity
+import com.example.medsreminder.data.MedicationWithTimes
+import com.example.medsreminder.data.ReminderTimeEntity
+import com.example.medsreminder.ui.CapabilityItem
+import com.example.medsreminder.ui.EditorDraft
+import com.example.medsreminder.ui.MedicationEditorScreen
+import com.example.medsreminder.ui.MedicationListScreen
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    private val database by lazy { AppDatabase.get(this) }
     private val scheduler by lazy { AlarmScheduler(this) }
-    private val store by lazy { AlarmStore(this) }
+    private val reconciler by lazy { AlarmReconciler(this, database, scheduler) }
 
+    private var medications by mutableStateOf<List<MedicationWithTimes>>(emptyList())
+    private var editor by mutableStateOf<EditorDraft?>(null)
     private var capabilities by mutableStateOf(CapabilityState())
-    private var scheduledAtMillis by mutableStateOf<Long?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AlarmRingingService.ensureNotificationChannel(this)
-        refreshState()
+        refreshCapabilities()
+        lifecycleScope.launch {
+            database.medicationDao().observeAll().collectLatest { medications = it }
+        }
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen()
-                }
+                Surface { MainContent() }
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        refreshState()
+        refreshCapabilities()
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { reconciler.reconcile(ReconciliationMode.ROUTINE) }
+            if (!scheduler.projectionReady()) {
+                // Do not revive audio/vibration when its actionable presentation is no longer
+                // available. Future BASE state remains persisted for a later reconciliation.
+                database.occurrenceDao().expireAllRinging(System.currentTimeMillis())
+            }
+            AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
+        }
     }
 
     @Composable
-    private fun MainScreen() {
+    private fun MainContent() {
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
-        ) { refreshState() }
-        val canSchedule = capabilities.notificationsAllowed &&
-            capabilities.channelHighImportance &&
-            capabilities.exactAlarmsAllowed
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("Medication alarm M0", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "A focused spike for exact delivery, lockscreen presentation, actions, and reboot recovery.",
-                style = MaterialTheme.typography.bodyMedium,
+        ) { refreshCapabilities() }
+        val currentEditor = editor
+        if (currentEditor != null) {
+            MedicationEditorScreen(
+                draft = currentEditor,
+                onDraftChange = { editor = it },
+                onSave = { saveMedication(it) },
+                onCancel = { editor = null },
             )
+            return
+        }
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Current alarm", style = MaterialTheme.typography.titleMedium)
-                    Text(statusText(scheduledAtMillis))
-                }
-            }
+        val capabilityItems = listOf(
+            CapabilityItem(
+                "Notifications",
+                capabilities.notificationsAllowed,
+                "Required for the actionable alarm notification.",
+                "Allow",
+            ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                else openAppNotificationSettings()
+            },
+            CapabilityItem(
+                "Alarm channel",
+                capabilities.channelHighImportance,
+                "Must remain high importance for heads-up presentation.",
+                "Open channel settings",
+                ::openAlarmChannelSettings,
+            ),
+            CapabilityItem(
+                "Exact alarms",
+                capabilities.exactAlarmsAllowed,
+                "Required for precise daily delivery.",
+                "Open alarm access",
+                ::openExactAlarmSettings,
+            ),
+            CapabilityItem(
+                "Full-screen alarm",
+                capabilities.fullScreenAllowed,
+                "Without access, delivery degrades to the alarm notification.",
+                "Open full-screen access",
+                ::openFullScreenIntentSettings,
+            ),
+        )
+        MedicationListScreen(
+            medications = medications,
+            capabilityItems = capabilityItems,
+            showSamsungGuidance = Build.MANUFACTURER.equals("samsung", ignoreCase = true),
+            onSamsungSettings = ::openAppNotificationSettings,
+            onAdd = { editor = EditorDraft.new() },
+            onEdit = { editor = EditorDraft.from(it) },
+            onToggle = { item, enabled -> saveMedication(EditorDraft.from(item).copy(enabled = enabled)) },
+            onDelete = ::deleteMedication,
+        )
+    }
 
-            Button(
-                onClick = { scheduleAfter(10_000L) },
-                enabled = canSchedule,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Schedule in 10 seconds")
-            }
-            Button(
-                onClick = { scheduleAfter(2 * 60_000L) },
-                enabled = canSchedule,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Schedule in 2 minutes")
-            }
-            OutlinedButton(
-                onClick = {
-                    scheduler.cancel()
-                    refreshState()
-                },
-                enabled = scheduledAtMillis != null,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Cancel alarm")
-            }
-
-            Spacer(Modifier.height(4.dp))
-            if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text("Samsung unlocked alarm actions", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "For immediate alarm actions while the phone is unlocked, set:\n" +
-                                "Apps → Meds Reminder → Notifications → " +
-                                "Pop-up notification style → Detailed.",
-                            style = MaterialTheme.typography.bodyMedium,
+    private fun saveMedication(draft: EditorDraft) {
+        val name = draft.name.trim()
+        val minutes = draft.times.map { it.minuteOfDay }
+        if (name.isBlank() || minutes.isEmpty() || minutes.distinct().size != minutes.size) {
+            Toast.makeText(this, "Enter a name and at least one unique time", Toast.LENGTH_LONG).show()
+            return
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val obsoleteIds = mutableListOf<String>()
+            var refreshRinging = false
+            runCatching {
+                database.withTransaction {
+                    val medicationDao = database.medicationDao()
+                    val occurrenceDao = database.occurrenceDao()
+                    val ringingId = occurrenceDao.getCurrentRinging()?.occurrenceId
+                    val previous = draft.id?.let { medicationDao.get(it) }
+                    val medicationId = if (previous == null) {
+                        medicationDao.insertMedication(
+                            MedicationEntity(
+                                name = name,
+                                instructions = draft.instructions.trim().ifBlank { null },
+                                enabled = draft.enabled,
+                            ),
                         )
-                        OutlinedButton(onClick = ::openAppNotificationSettings) {
-                            Text("Open notification settings")
+                    } else {
+                        medicationDao.updateMedication(
+                            previous.copy(
+                                name = name,
+                                instructions = draft.instructions.trim().ifBlank { null },
+                                enabled = draft.enabled,
+                            ),
+                        )
+                        previous.id
+                    }
+
+                    val existing = medicationDao.getTimes(medicationId).associateBy { it.id }
+                    val retainedIds = draft.times.mapNotNull { it.id }.toSet()
+                    existing.values.filter { it.id !in retainedIds }.forEach { removed ->
+                        obsoleteIds += occurrenceDao.getNonterminalIds(removed.id)
+                        medicationDao.deleteTime(removed)
+                    }
+
+                    draft.times.forEach { editorTime ->
+                        val old = editorTime.id?.let(existing::get)
+                        if (old == null) {
+                            medicationDao.insertTime(
+                                ReminderTimeEntity(
+                                    medicationId = medicationId,
+                                    minuteOfDay = editorTime.minuteOfDay,
+                                ),
+                            )
+                        } else if (old.minuteOfDay != editorTime.minuteOfDay) {
+                            obsoleteIds += occurrenceDao.getNonterminalIds(old.id)
+                            occurrenceDao.deleteNonterminal(old.id)
+                            medicationDao.updateTime(old.copy(minuteOfDay = editorTime.minuteOfDay))
                         }
                     }
-                }
-            }
 
-            Text("Capabilities", style = MaterialTheme.typography.titleLarge)
-
-            CapabilityCard(
-                title = "Notifications",
-                available = capabilities.notificationsAllowed,
-                detail = "Required for the alarm notification and actions.",
-                actionLabel = "Allow",
-                onAction = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    if (!draft.enabled) {
+                        obsoleteIds += occurrenceDao.getMedicationNonterminalIds(medicationId)
+                        occurrenceDao.deleteMedicationNonterminal(medicationId)
                     } else {
-                        openAppNotificationSettings()
+                        medicationDao.getTimes(medicationId).forEach { time ->
+                            reconciler.ensureFutureBase(
+                                time.id,
+                                time.minuteOfDay,
+                                System.currentTimeMillis(),
+                                ZoneId.systemDefault(),
+                            )
+                        }
                     }
-                },
-            )
-            CapabilityCard(
-                title = "Alarm channel",
-                available = capabilities.channelHighImportance,
-                detail = "Must remain high importance for heads-up presentation.",
-                actionLabel = "Open channel settings",
-                onAction = ::openAlarmChannelSettings,
-            )
-            CapabilityCard(
-                title = "Exact alarms",
-                available = capabilities.exactAlarmsAllowed,
-                detail = "User-granted Alarms & reminders access for setAlarmClock().",
-                actionLabel = "Open alarm access",
-                onAction = ::openExactAlarmSettings,
-            )
-            CapabilityCard(
-                title = "Full-screen alarm",
-                available = capabilities.fullScreenAllowed,
-                detail = if (capabilities.fullScreenAllowed) {
-                    "Lockscreen full-screen intent is available."
-                } else {
-                    "Alarm scheduling still works, but lockscreen delivery may degrade to a notification."
-                },
-                actionLabel = "Open full-screen access",
-                onAction = ::openFullScreenIntentSettings,
-            )
-        }
-    }
-
-    @Composable
-    private fun CapabilityCard(
-        title: String,
-        available: Boolean,
-        detail: String,
-        actionLabel: String,
-        onAction: () -> Unit,
-    ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text(if (available) "Ready" else "Action needed")
+                    refreshRinging = ringingId != null
                 }
-                Text(detail, style = MaterialTheme.typography.bodySmall)
-                if (!available) {
-                    OutlinedButton(onClick = onAction) {
-                        Text(actionLabel)
-                    }
+                obsoleteIds.distinct().forEach(scheduler::cancelOccurrence)
+                reconciler.reconcile(ReconciliationMode.ROUTINE)
+                if (refreshRinging) {
+                    AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
+                }
+            }.onSuccess {
+                withContext(Dispatchers.Main) { editor = null }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Could not save: ${error.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    private fun scheduleAfter(delayMillis: Long) {
-        val triggerAt = System.currentTimeMillis() + delayMillis
-        val result = scheduler.schedule(triggerAt)
-        refreshState()
-        Toast.makeText(
-            this,
-            if (result.isSuccess) "Alarm scheduled" else "Could not schedule: ${result.exceptionOrNull()?.message}",
-            Toast.LENGTH_LONG,
-        ).show()
+    private fun deleteMedication(item: MedicationWithTimes) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                var obsoleteIds = emptyList<String>()
+                var refreshRinging = false
+                database.withTransaction {
+                    val ringingId = database.occurrenceDao().getCurrentRinging()?.occurrenceId
+                    obsoleteIds = database.occurrenceDao()
+                        .getMedicationNonterminalIds(item.medication.id)
+                    refreshRinging = ringingId != null
+                    database.medicationDao().deleteMedication(item.medication)
+                }
+                obsoleteIds.forEach(scheduler::cancelOccurrence)
+                if (refreshRinging) {
+                    AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
+                }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Could not delete: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
-    private fun refreshState() {
+    private fun refreshCapabilities() {
         val notificationManager = getSystemService(NotificationManager::class.java)
         val channel = notificationManager.getNotificationChannel(AlarmRingingService.CHANNEL_ID)
         capabilities = CapabilityState(
             notificationsAllowed = notificationManager.areNotificationsEnabled() &&
                 (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
                     checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED),
-            channelHighImportance = channel?.importance == NotificationManager.IMPORTANCE_HIGH,
+            channelHighImportance = channel?.importance?.let { it >= NotificationManager.IMPORTANCE_HIGH } == true,
             exactAlarmsAllowed = getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
             fullScreenAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
                 notificationManager.canUseFullScreenIntent(),
         )
-        scheduledAtMillis = store.scheduledAtMillis()
     }
 
-    private fun statusText(triggerAtMillis: Long?): String {
-        if (triggerAtMillis == null) {
-            return "No alarm scheduled"
-        }
-        val formatted = TIME_FORMATTER.format(
-            Instant.ofEpochMilli(triggerAtMillis).atZone(ZoneId.systemDefault()),
-        )
-        return if (triggerAtMillis > System.currentTimeMillis()) {
-            "Scheduled for $formatted"
-        } else {
-            "Triggered at $formatted; awaiting resolution"
-        }
-    }
-
-    private fun openExactAlarmSettings() {
-        startActivity(
-            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                .setData(Uri.parse("package:$packageName")),
-        )
-    }
+    private fun openExactAlarmSettings() = startActivity(
+        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(Uri.parse("package:$packageName")),
+    )
 
     private fun openFullScreenIntentSettings() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -279,10 +280,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openAppNotificationSettings() {
-        val notificationSettingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
         try {
-            startActivity(notificationSettingsIntent)
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            )
         } catch (_: ActivityNotFoundException) {
             startActivity(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
@@ -291,13 +293,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openAlarmChannelSettings() {
-        startActivity(
-            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                .putExtra(Settings.EXTRA_CHANNEL_ID, AlarmRingingService.CHANNEL_ID),
-        )
-    }
+    private fun openAlarmChannelSettings() = startActivity(
+        Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            .putExtra(Settings.EXTRA_CHANNEL_ID, AlarmRingingService.CHANNEL_ID),
+    )
 
     private data class CapabilityState(
         val notificationsAllowed: Boolean = false,
@@ -305,8 +305,4 @@ class MainActivity : ComponentActivity() {
         val exactAlarmsAllowed: Boolean = false,
         val fullScreenAllowed: Boolean = false,
     )
-
-    companion object {
-        private val TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-    }
 }

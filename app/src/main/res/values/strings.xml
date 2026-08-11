@@ -1,9 +1,7 @@
 <resources>
-    <string name="app_name">Meds Reminder M0</string>
-    <string name="alarm_channel_name">Medication alarms (M0)</string>
+    <string name="app_name">Meds Reminder</string>
+    <string name="alarm_channel_name">Medication alarms</string>
     <string name="alarm_channel_description">High-importance medication alarm notifications; ringing is controlled by the alarm service</string>
-    <string name="alarm_notification_title">Medication alarm</string>
-    <string name="alarm_notification_text">Test alarm is ringing</string>
     <string name="action_taken">Taken</string>
     <string name="action_snooze">Snooze 5 min</string>
     <string name="action_skip">Skip</string>
