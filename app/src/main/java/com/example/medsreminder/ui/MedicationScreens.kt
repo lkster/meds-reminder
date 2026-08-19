@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,10 +29,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
+import com.example.medsreminder.data.WeekdayMask
+import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-data class EditorTime(val id: Long?, val minuteOfDay: Int)
+data class EditorTime(
+    val id: Long?,
+    val minuteOfDay: Int,
+    val weekdayMask: Int = WeekdayMask.ALL,
+)
 
 data class EditorDraft(
     val id: Long?,
@@ -49,7 +56,7 @@ data class EditorDraft(
             instructions = item.medication.instructions.orEmpty(),
             enabled = item.medication.enabled,
             times = item.reminderTimes.sortedBy { it.minuteOfDay }
-                .map { EditorTime(it.id, it.minuteOfDay) },
+                .map { EditorTime(it.id, it.minuteOfDay, it.weekdayMask) },
         )
     }
 }
@@ -96,9 +103,9 @@ fun MedicationListScreen(
                         )
                     }
                     item.medication.instructions?.let { Text(it) }
-                    Text(item.reminderTimes.sortedBy { it.minuteOfDay }.joinToString(" · ") {
-                        formatMinute(it.minuteOfDay)
-                    })
+                    item.reminderTimes.sortedBy { it.minuteOfDay }.forEach { reminder ->
+                        Text("${formatMinute(reminder.minuteOfDay)} — ${formatWeekdays(reminder.weekdayMask)}")
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { onEdit(item) }) { Text("Edit") }
                         TextButton(onClick = { deleteCandidate = item }) { Text("Delete") }
@@ -182,34 +189,59 @@ fun MedicationEditorScreen(
             Text("Enabled", style = MaterialTheme.typography.titleMedium)
             Switch(draft.enabled, { onDraftChange(draft.copy(enabled = it)) })
         }
-        Text("Daily reminder times", style = MaterialTheme.typography.titleMedium)
+        Text("Reminder schedules", style = MaterialTheme.typography.titleMedium)
         draft.times.forEachIndexed { index, time ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = {
-                    TimePickerDialog(
-                        context,
-                        { _, hour, minute ->
-                            val changed = draft.times.toMutableList()
-                            changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
-                            onDraftChange(draft.copy(times = changed))
-                        },
-                        time.minuteOfDay / 60,
-                        time.minuteOfDay % 60,
-                        true,
-                    ).show()
-                }) { Text(formatMinute(time.minuteOfDay)) }
-                if (draft.times.size > 1) {
-                    TextButton(onClick = {
-                        onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
-                    }) { Text("Remove") }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(onClick = {
+                            TimePickerDialog(
+                                context,
+                                { _, hour, minute ->
+                                    val changed = draft.times.toMutableList()
+                                    changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
+                                    onDraftChange(draft.copy(times = changed))
+                                },
+                                time.minuteOfDay / 60,
+                                time.minuteOfDay % 60,
+                                true,
+                            ).show()
+                        }) { Text(formatMinute(time.minuteOfDay)) }
+                        if (draft.times.size > 1) {
+                            TextButton(onClick = {
+                                onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
+                            }) { Text("Remove") }
+                        }
+                    }
+                    WeekdaySelector(time.weekdayMask) { weekdayMask ->
+                        val changed = draft.times.toMutableList()
+                        changed[index] = time.copy(weekdayMask = weekdayMask)
+                        onDraftChange(draft.copy(times = changed))
+                    }
+                    if (time.weekdayMask == 0) {
+                        Text(
+                            "Select at least one day",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
         }
         OutlinedButton(onClick = {
             val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
-            onDraftChange(draft.copy(times = draft.times + EditorTime(null, nextMinute)))
+            onDraftChange(
+                draft.copy(times = draft.times + EditorTime(null, nextMinute, WeekdayMask.ALL)),
+            )
         }) { Text("Add another time") }
-        Button(onClick = { onSave(draft) }, modifier = Modifier.fillMaxWidth()) { Text("Save") }
+        Button(
+            onClick = { onSave(draft) },
+            enabled = draft.times.all { WeekdayMask.isValid(it.weekdayMask) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Save") }
         OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
     }
 }
@@ -218,3 +250,46 @@ private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
 
 private fun formatMinute(minuteOfDay: Int): String =
     TIME_FORMATTER.format(LocalTime.of(minuteOfDay / 60, minuteOfDay % 60))
+
+@Composable
+private fun WeekdaySelector(weekdayMask: Int, onChange: (Int) -> Unit) {
+    FilterChip(
+        selected = weekdayMask == WeekdayMask.ALL,
+        onClick = { onChange(WeekdayMask.ALL) },
+        label = { Text("Every day") },
+    )
+    DAY_ROWS.forEach { days ->
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            days.forEach { day ->
+                val bit = 1 shl (day.value - 1)
+                FilterChip(
+                    selected = weekdayMask and bit != 0,
+                    onClick = { onChange(weekdayMask xor bit) },
+                    label = { Text(dayLabel(day)) },
+                )
+            }
+        }
+    }
+}
+
+private fun formatWeekdays(weekdayMask: Int): String = if (weekdayMask == WeekdayMask.ALL) {
+    "Every day"
+} else {
+    DayOfWeek.entries.filter { weekdayMask and (1 shl (it.value - 1)) != 0 }
+        .joinToString(" ", transform = ::dayLabel)
+}
+
+private fun dayLabel(day: DayOfWeek): String = when (day) {
+    DayOfWeek.MONDAY -> "Mon"
+    DayOfWeek.TUESDAY -> "Tue"
+    DayOfWeek.WEDNESDAY -> "Wed"
+    DayOfWeek.THURSDAY -> "Thu"
+    DayOfWeek.FRIDAY -> "Fri"
+    DayOfWeek.SATURDAY -> "Sat"
+    DayOfWeek.SUNDAY -> "Sun"
+}
+
+private val DAY_ROWS = listOf(
+    listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY),
+    listOf(DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY),
+)

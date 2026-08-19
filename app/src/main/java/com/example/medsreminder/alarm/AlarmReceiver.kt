@@ -69,6 +69,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     nextBase = reconciler.ensureFutureBase(
                         current.reminderTimeId,
                         current.minuteOfDay,
+                        current.weekdayMask,
                         now,
                     )
                 }
@@ -88,6 +89,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 nextBase = reconciler.ensureFutureBase(
                     current.reminderTimeId,
                     current.minuteOfDay,
+                    current.weekdayMask,
                     now,
                 )
             }

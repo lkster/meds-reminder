@@ -1,8 +1,9 @@
-# Meds Reminder M1
+# Meds Reminder M2
 
-Meds Reminder is an Android-first, local medication reminder. M1 supports multiple medications,
-optional instructions, enable/disable, and one or more fixed local times per medication. Each time
-recurs daily and can be resolved as Taken, Snoozed for five minutes, or Skipped.
+Meds Reminder is an Android-first, local medication reminder. M2 supports multiple medications,
+optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
+Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
+occurrence can be resolved as Taken, Snoozed for five minutes, or Skipped.
 
 ## Alarm behavior
 
@@ -19,15 +20,26 @@ presented occurrence.
 Normal delivery accepts an occurrence up to the explicit two-minute `DELIVERY_GRACE_MILLIS` policy.
 This protects an AlarmManager broadcast already in flight during routine reconciliation while still
 rejecting materially late delivery. Reboot/package-update/exact-access recovery does not catch up
-past medication alarms; it expires them and restores the next future daily occurrences.
+past medication alarms; it expires them and restores the next eligible future occurrences.
+
+Weekday-only edits preserve a recently-due BASE occurrence while it remains inside delivery grace
+and its concrete local weekday remains selected. They also preserve already-ringing occurrences and
+pending SNOOZE occurrences. Each enabled schedule otherwise has one canonical future BASE; the
+grace-valid due BASE may temporarily coexist with it.
+
+## Persistence
+
+Room schema version 2 adds `reminder_times.weekday_mask` as `INTEGER NOT NULL DEFAULT 127`.
+The non-destructive v1-to-v2 migration maps every existing daily schedule to all seven weekdays
+without changing medication IDs, reminder-time IDs, occurrence UUIDs, or occurrence history.
 
 ## Direct Boot limitation
 
-Medication data is stored in credential-protected Room storage. M1 deliberately does not duplicate
+Medication data is stored in credential-protected Room storage. M2 deliberately does not duplicate
 medication names or schedules into device-protected storage. `LOCKED_BOOT_COMPLETED` therefore does
 not access Room or restore medication alarms. `BOOT_COMPLETED` reconciles after the first unlock.
 
-This is a known temporary M1 reliability regression relative to the M0 technical spike, not the
+This remains a known reliability limitation relative to the M0 technical spike, not the
 intended final production behavior: a medication alarm due after reboot but before first unlock is
 not delivered. A later reliability milestone must address this explicitly.
 
@@ -44,16 +56,18 @@ not delivered. A later reliability milestone must address this explicitly.
 Run the automated checks from the repository root:
 
 ```powershell
-.\.tools\gradle-9.1.0\bin\gradle.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 ```
 
 The instrumented Room test still needs an emulator or connected device:
 
 ```powershell
 adb install -r .\app\build\outputs\apk\debug\app-debug.apk
-.\.tools\gradle-9.1.0\bin\gradle.bat connectedDebugAndroidTest
+.\gradlew.bat connectedDebugAndroidTest
 ```
 
-Emulator validation covers CRUD, edit/disable/delete cancellation, reboot reconciliation, snooze,
-queue advancement, and resource cleanup. Samsung S23 validation remains required for lock-screen
-full-screen presentation, unlocked heads-up behavior, task restoration, and OEM notification UI.
+Emulator validation covers CRUD, weekday edits, grace-valid delivery, edit/disable/delete
+cancellation, reboot reconciliation, Snooze, queue advancement, and resource cleanup. The accepted
+Samsung S23 alarm-presentation result does not need to be repeated for M2 because the alarm activity,
+ringing service, notification/channel, full-screen session identity, foreground startup, and alarm
+actions are unchanged.

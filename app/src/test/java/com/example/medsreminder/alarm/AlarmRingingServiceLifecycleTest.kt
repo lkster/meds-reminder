@@ -214,6 +214,7 @@ class AlarmRingingServiceLifecycleTest {
         medicationName = "Medicine",
         instructions = null,
         minuteOfDay = 8 * 60,
+        weekdayMask = 127,
     )
 
     private fun awaitServiceWork(condition: () -> Boolean) {

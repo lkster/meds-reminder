@@ -7,11 +7,14 @@ import com.example.medsreminder.data.MedicationEntity
 import com.example.medsreminder.data.OccurrenceKind
 import com.example.medsreminder.data.OccurrenceStatus
 import com.example.medsreminder.data.ReminderTimeEntity
+import com.example.medsreminder.data.WeekdayMask
+import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -80,6 +83,44 @@ class AlarmReconcilerTest {
 
         assertEquals(OccurrenceStatus.EXPIRED, database.occurrenceDao().get("due")?.status)
         assertNotNull(database.occurrenceDao().getFutureBase(reminderTimeId, now))
+    }
+
+    @Test
+    fun wallClockChangeRebuildsBaseAndPreservesFutureSnooze() = runBlocking {
+        val now = Instant.parse("2035-08-20T06:00:00Z").toEpochMilli()
+        val oldBase = AlarmOccurrenceEntity(
+            id = "old-base",
+            reminderTimeId = reminderTimeId,
+            kind = OccurrenceKind.BASE,
+            scheduledAtEpochMillis = now + 60 * 60 * 1000L,
+            status = OccurrenceStatus.SCHEDULED,
+        )
+        val snooze = AlarmOccurrenceEntity(
+            id = "future-snooze",
+            reminderTimeId = reminderTimeId,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAtEpochMillis = now + 5 * 60 * 1000L,
+            status = OccurrenceStatus.SCHEDULED,
+        )
+        database.occurrenceDao().insert(oldBase)
+        database.occurrenceDao().insert(snooze)
+        val newZone = ZoneId.of("Asia/Tokyo")
+
+        reconciler.reconcile(ReconciliationMode.WALL_CLOCK_CHANGED, now, newZone)
+
+        assertNull(database.occurrenceDao().get(oldBase.id))
+        assertEquals(snooze, database.occurrenceDao().get(snooze.id))
+        val replacement = database.occurrenceDao().getFutureBase(reminderTimeId, now)
+        assertNotNull(replacement)
+        assertEquals(
+            NextOccurrenceCalculator.next(
+                8 * 60,
+                WeekdayMask.ALL,
+                Instant.ofEpochMilli(now),
+                newZone,
+            ).toEpochMilli(),
+            replacement?.scheduledAtEpochMillis,
+        )
     }
 
     private fun occurrence(due: Long) = AlarmOccurrenceEntity(

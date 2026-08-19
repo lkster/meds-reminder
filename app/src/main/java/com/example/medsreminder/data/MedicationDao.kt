@@ -47,7 +47,7 @@ interface MedicationDao {
 
     @Query(
         """
-        SELECT rt.id AS reminder_time_id, rt.medication_id, rt.minute_of_day
+        SELECT rt.id AS reminder_time_id, rt.medication_id, rt.minute_of_day, rt.weekday_mask
         FROM reminder_times rt
         INNER JOIN medications m ON m.id = rt.medication_id
         WHERE m.enabled = 1

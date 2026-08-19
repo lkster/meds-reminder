@@ -105,7 +105,7 @@ class AppDaoInstrumentedTest {
                 null,
             )
             if (claimed == 1) {
-                reconciler.ensureFutureBase(reminderTimeId, 480, now, ZoneId.of("UTC"))
+                reconciler.ensureFutureBase(reminderTimeId, 480, WeekdayMask.ALL, now, ZoneId.of("UTC"))
             }
             return claimed
         }

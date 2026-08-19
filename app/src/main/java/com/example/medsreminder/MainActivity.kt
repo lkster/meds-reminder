@@ -28,9 +28,11 @@ import com.example.medsreminder.alarm.AlarmReconciler
 import com.example.medsreminder.alarm.AlarmScheduler
 import com.example.medsreminder.alarm.ReconciliationMode
 import com.example.medsreminder.data.AppDatabase
-import com.example.medsreminder.data.MedicationEntity
+import com.example.medsreminder.data.MedicationScheduleEdit
 import com.example.medsreminder.data.MedicationWithTimes
-import com.example.medsreminder.data.ReminderTimeEntity
+import com.example.medsreminder.data.ReminderScheduleEdit
+import com.example.medsreminder.data.WeekdayMask
+import com.example.medsreminder.data.applyMedicationScheduleEdit
 import com.example.medsreminder.ui.CapabilityItem
 import com.example.medsreminder.ui.EditorDraft
 import com.example.medsreminder.ui.MedicationEditorScreen
@@ -143,79 +145,35 @@ class MainActivity : ComponentActivity() {
     private fun saveMedication(draft: EditorDraft) {
         val name = draft.name.trim()
         val minutes = draft.times.map { it.minuteOfDay }
-        if (name.isBlank() || minutes.isEmpty() || minutes.distinct().size != minutes.size) {
-            Toast.makeText(this, "Enter a name and at least one unique time", Toast.LENGTH_LONG).show()
+        if (name.isBlank() || minutes.isEmpty() || minutes.distinct().size != minutes.size ||
+            draft.times.any { !WeekdayMask.isValid(it.weekdayMask) }
+        ) {
+            Toast.makeText(
+                this,
+                "Enter a name, at least one unique time, and weekdays for every reminder",
+                Toast.LENGTH_LONG,
+            ).show()
             return
         }
         lifecycleScope.launch(Dispatchers.IO) {
-            val obsoleteIds = mutableListOf<String>()
-            var refreshRinging = false
             runCatching {
-                database.withTransaction {
-                    val medicationDao = database.medicationDao()
-                    val occurrenceDao = database.occurrenceDao()
-                    val ringingId = occurrenceDao.getCurrentRinging()?.occurrenceId
-                    val previous = draft.id?.let { medicationDao.get(it) }
-                    val medicationId = if (previous == null) {
-                        medicationDao.insertMedication(
-                            MedicationEntity(
-                                name = name,
-                                instructions = draft.instructions.trim().ifBlank { null },
-                                enabled = draft.enabled,
-                            ),
-                        )
-                    } else {
-                        medicationDao.updateMedication(
-                            previous.copy(
-                                name = name,
-                                instructions = draft.instructions.trim().ifBlank { null },
-                                enabled = draft.enabled,
-                            ),
-                        )
-                        previous.id
-                    }
-
-                    val existing = medicationDao.getTimes(medicationId).associateBy { it.id }
-                    val retainedIds = draft.times.mapNotNull { it.id }.toSet()
-                    existing.values.filter { it.id !in retainedIds }.forEach { removed ->
-                        obsoleteIds += occurrenceDao.getNonterminalIds(removed.id)
-                        medicationDao.deleteTime(removed)
-                    }
-
-                    draft.times.forEach { editorTime ->
-                        val old = editorTime.id?.let(existing::get)
-                        if (old == null) {
-                            medicationDao.insertTime(
-                                ReminderTimeEntity(
-                                    medicationId = medicationId,
-                                    minuteOfDay = editorTime.minuteOfDay,
-                                ),
-                            )
-                        } else if (old.minuteOfDay != editorTime.minuteOfDay) {
-                            obsoleteIds += occurrenceDao.getNonterminalIds(old.id)
-                            occurrenceDao.deleteNonterminal(old.id)
-                            medicationDao.updateTime(old.copy(minuteOfDay = editorTime.minuteOfDay))
-                        }
-                    }
-
-                    if (!draft.enabled) {
-                        obsoleteIds += occurrenceDao.getMedicationNonterminalIds(medicationId)
-                        occurrenceDao.deleteMedicationNonterminal(medicationId)
-                    } else {
-                        medicationDao.getTimes(medicationId).forEach { time ->
-                            reconciler.ensureFutureBase(
-                                time.id,
-                                time.minuteOfDay,
-                                System.currentTimeMillis(),
-                                ZoneId.systemDefault(),
-                            )
-                        }
-                    }
-                    refreshRinging = ringingId != null
-                }
-                obsoleteIds.distinct().forEach(scheduler::cancelOccurrence)
+                val nowMillis = System.currentTimeMillis()
+                val result = database.applyMedicationScheduleEdit(
+                    edit = MedicationScheduleEdit(
+                        medicationId = draft.id,
+                        name = name,
+                        instructions = draft.instructions.trim().ifBlank { null },
+                        enabled = draft.enabled,
+                        reminders = draft.times.map {
+                            ReminderScheduleEdit(it.id, it.minuteOfDay, it.weekdayMask)
+                        },
+                    ),
+                    nowMillis = nowMillis,
+                    zoneId = ZoneId.systemDefault(),
+                )
+                result.obsoleteOccurrenceIds.forEach(scheduler::cancelOccurrence)
                 reconciler.reconcile(ReconciliationMode.ROUTINE)
-                if (refreshRinging) {
+                if (result.refreshRinging) {
                     AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
                 }
             }.onSuccess {

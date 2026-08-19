@@ -17,7 +17,8 @@ private const val DETAILS_SELECT = """
            m.id AS medication_id,
            m.name AS medication_name,
            m.instructions,
-           rt.minute_of_day
+           rt.minute_of_day,
+           rt.weekday_mask
     FROM alarm_occurrences ao
     INNER JOIN reminder_times rt ON rt.id = ao.reminder_time_id
     INNER JOIN medications m ON m.id = rt.medication_id
@@ -109,6 +110,17 @@ interface OccurrenceDao {
             "ORDER BY scheduled_at_epoch_millis LIMIT 1",
     )
     suspend fun getFutureBase(reminderTimeId: Long, nowMillis: Long): AlarmOccurrenceEntity?
+
+    @Query(
+        "SELECT * FROM alarm_occurrences WHERE reminder_time_id = :reminderTimeId " +
+            "AND kind = 'BASE' AND status = 'SCHEDULED' ORDER BY scheduled_at_epoch_millis, id",
+    )
+    suspend fun getScheduledBases(reminderTimeId: Long): List<AlarmOccurrenceEntity>
+
+    @Query(
+        "DELETE FROM alarm_occurrences WHERE id = :id AND kind = 'BASE' AND status = 'SCHEDULED'",
+    )
+    suspend fun deleteScheduledBase(id: String): Int
 
     @Query(
         "SELECT id FROM alarm_occurrences WHERE reminder_time_id = :reminderTimeId " +

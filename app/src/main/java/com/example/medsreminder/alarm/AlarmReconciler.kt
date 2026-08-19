@@ -3,13 +3,8 @@ package com.example.medsreminder.alarm
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
-import com.example.medsreminder.data.AlarmOccurrenceEntity
 import com.example.medsreminder.data.AppDatabase
-import com.example.medsreminder.data.OccurrenceKind
-import com.example.medsreminder.data.OccurrenceStatus
-import java.time.Instant
 import java.time.ZoneId
-import java.util.UUID
 
 enum class ReconciliationMode {
     ROUTINE,
@@ -62,6 +57,7 @@ class AlarmReconciler(
                 ensureFutureBase(
                     reminderTimeId = reminder.reminderTimeId,
                     minuteOfDay = reminder.minuteOfDay,
+                    weekdayMask = reminder.weekdayMask,
                     nowMillis = nowMillis,
                     zoneId = zoneId,
                 )
@@ -85,25 +81,10 @@ class AlarmReconciler(
     suspend fun ensureFutureBase(
         reminderTimeId: Long,
         minuteOfDay: Int,
+        weekdayMask: Int,
         nowMillis: Long,
         zoneId: ZoneId = ZoneId.systemDefault(),
-    ): AlarmOccurrenceEntity {
-        val occurrenceDao = database.occurrenceDao()
-        occurrenceDao.getFutureBase(reminderTimeId, nowMillis)?.let { return it }
-        val next = AlarmOccurrenceEntity(
-            id = UUID.randomUUID().toString(),
-            reminderTimeId = reminderTimeId,
-            kind = OccurrenceKind.BASE,
-            scheduledAtEpochMillis = NextOccurrenceCalculator.next(
-                minuteOfDay,
-                Instant.ofEpochMilli(nowMillis),
-                zoneId,
-            ).toEpochMilli(),
-            status = OccurrenceStatus.SCHEDULED,
-        )
-        occurrenceDao.insert(next)
-        return occurrenceDao.getFutureBase(reminderTimeId, nowMillis) ?: next
-    }
+    ) = database.ensureFutureBase(reminderTimeId, minuteOfDay, weekdayMask, nowMillis, zoneId)
 
     companion object {
         private const val TAG = "AlarmReconciler"

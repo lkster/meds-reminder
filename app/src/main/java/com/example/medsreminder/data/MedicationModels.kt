@@ -35,7 +35,12 @@ data class ReminderTimeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "medication_id") val medicationId: Long,
     @ColumnInfo(name = "minute_of_day") val minuteOfDay: Int,
-)
+    @ColumnInfo(name = "weekday_mask", defaultValue = "127") val weekdayMask: Int = WeekdayMask.ALL,
+) {
+    init {
+        WeekdayMask.requireValid(weekdayMask)
+    }
+}
 
 enum class OccurrenceKind {
     BASE,
@@ -94,6 +99,7 @@ data class EnabledReminderTime(
     @ColumnInfo(name = "reminder_time_id") val reminderTimeId: Long,
     @ColumnInfo(name = "medication_id") val medicationId: Long,
     @ColumnInfo(name = "minute_of_day") val minuteOfDay: Int,
+    @ColumnInfo(name = "weekday_mask") val weekdayMask: Int,
 )
 
 data class OccurrenceDetails(
@@ -107,4 +113,5 @@ data class OccurrenceDetails(
     @ColumnInfo(name = "medication_name") val medicationName: String,
     val instructions: String?,
     @ColumnInfo(name = "minute_of_day") val minuteOfDay: Int,
+    @ColumnInfo(name = "weekday_mask") val weekdayMask: Int,
 )
