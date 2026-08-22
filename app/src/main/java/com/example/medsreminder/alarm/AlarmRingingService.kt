@@ -57,13 +57,26 @@ class AlarmRingingService : Service() {
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var audioFocusOccurrenceId: String? = null
+    private var audioFocusGeneration: Long? = null
     private var foregroundStarted = false
     private var cleanedUp = false
     private var preserveFallbackNotification = false
     internal var ringingResourcesStarted = false
         private set
+    internal var activeOutputOccurrenceId: String? = null
+        private set
+    internal var activePreferenceSnapshot: AlarmPreferenceSnapshot? = null
+        private set
+    internal val activeMediaPlayer: MediaPlayer?
+        get() = mediaPlayer
+    internal val activeAudioFocusRequest: AudioFocusRequest?
+        get() = audioFocusRequest
+    internal val activeWakeLock: PowerManager.WakeLock?
+        get() = wakeLock
     @Volatile private var currentOccurrenceId: String? = null
     @Volatile private var refreshGeneration = 0L
+    private var audioPresentationGeneration = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -189,8 +202,6 @@ class AlarmRingingService : Service() {
             return
         }
 
-        val occurrenceChanged = currentOccurrenceId != selected.occurrenceId
-        currentOccurrenceId = selected.occurrenceId
         val presentedAt = selected.presentedAtEpochMillis ?: System.currentTimeMillis()
         val remaining = (presentedAt + RINGING_TIMEOUT_MILLIS - System.currentTimeMillis())
             .coerceAtLeast(0L)
@@ -205,13 +216,23 @@ class AlarmRingingService : Service() {
         handler.post {
             if (generation != refreshGeneration) return@post
             if (!cleanedUp) {
-                val startedNow = ensureRingingResourcesStarted()
-                if (occurrenceChanged && !startedNow) refreshWakeLockTimeout()
+                val previousOccurrenceId = currentOccurrenceId
+                val occurrenceChanged = previousOccurrenceId != selected.occurrenceId
+                if (occurrenceChanged && previousOccurrenceId != null) {
+                    stopConfigurableRingingOutput()
+                }
+                currentOccurrenceId = selected.occurrenceId
                 if (!notificationAlreadyPosted) {
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
                 }
                 handler.removeCallbacks(stopCurrentAfterTimeout)
                 handler.postDelayed(stopCurrentAfterTimeout, remaining)
+                val startedNow = ensureSessionResourcesStarted()
+                if (occurrenceChanged && !startedNow) refreshWakeLockTimeout()
+                if (occurrenceChanged || activeOutputOccurrenceId == null) {
+                    val preferences = AlarmPreferences.read(this@AlarmRingingService)
+                    startConfigurableRingingOutput(selected.occurrenceId, preferences)
+                }
             }
         }
     }
@@ -221,13 +242,22 @@ class AlarmRingingService : Service() {
         val count: Int,
     )
 
-    private fun ensureRingingResourcesStarted(): Boolean {
+    private fun ensureSessionResourcesStarted(): Boolean {
         if (ringingResourcesStarted) return false
         ringingResourcesStarted = true
         acquireWakeLock()
-        startVibration()
-        startAlarmAudio()
         return true
+    }
+
+    private fun startConfigurableRingingOutput(
+        occurrenceId: String,
+        preferences: AlarmPreferenceSnapshot,
+    ) {
+        activeOutputOccurrenceId = occurrenceId
+        activePreferenceSnapshot = preferences
+        val generation = ++audioPresentationGeneration
+        if (preferences.vibrationEnabled) startVibration()
+        startAlarmAudio(occurrenceId, generation, preferences.selectedSoundUri)
     }
 
     private fun timeoutCurrentOccurrence() {
@@ -294,39 +324,142 @@ class AlarmRingingService : Service() {
         }
     }
 
-    private fun startAlarmAudio() {
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-        if (alarmUri == null) {
+    private fun startAlarmAudio(
+        occurrenceId: String,
+        generation: Long,
+        selectedSoundUri: Uri?,
+    ) {
+        val candidates = AlarmPreferences.soundCandidates(
+            selectedSoundUri,
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+        )
+        if (candidates.isEmpty()) {
             Log.e(TAG, "No default system alarm tone is configured; using vibration only")
             return
         }
         val audioManager = getSystemService(AudioManager::class.java)
-        audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
             .setAudioAttributes(ALARM_AUDIO_ATTRIBUTES)
             .setOnAudioFocusChangeListener { }
             .build()
-        if (audioManager.requestAudioFocus(audioFocusRequest!!) == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
+        audioFocusRequest = focusRequest
+        audioFocusOccurrenceId = occurrenceId
+        audioFocusGeneration = generation
+        if (audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
             Log.w(TAG, "Alarm audio focus request was denied; attempting playback anyway")
         }
-        try {
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(ALARM_AUDIO_ATTRIBUTES)
-                setDataSource(this@AlarmRingingService, alarmUri)
-                isLooping = true
-                setOnErrorListener { player, what, extra ->
-                    Log.e(TAG, "Alarm audio playback error what=$what extra=$extra")
-                    runCatching { player.release() }
-                    if (mediaPlayer === player) mediaPlayer = null
-                    true
-                }
-                prepare()
-                start()
-            }
-        } catch (error: Throwable) {
-            Log.e(TAG, "Unable to play the default alarm tone; using vibration only", error)
-            runCatching { mediaPlayer?.release() }
-            mediaPlayer = null
+        startSoundCandidate(candidates, 0, occurrenceId, generation)
+    }
+
+    private fun startSoundCandidate(
+        candidates: List<Uri>,
+        candidateIndex: Int,
+        occurrenceId: String,
+        generation: Long,
+    ) {
+        if (!isCurrentAudioPresentation(occurrenceId, generation)) return
+        val alarmUri = candidates.getOrNull(candidateIndex)
+        if (alarmUri == null) {
+            Log.e(TAG, "Unable to play an alarm tone; using vibration only")
+            abandonAudioFocusIfOwned(occurrenceId, generation)
+            return
         }
+        val player = try {
+            MediaPlayer()
+        } catch (error: Throwable) {
+            Log.e(TAG, "Unable to create alarm player for $alarmUri", error)
+            if (isCurrentAudioPresentation(occurrenceId, generation)) {
+                startSoundCandidate(candidates, candidateIndex + 1, occurrenceId, generation)
+            }
+            return
+        }
+        try {
+            player.setAudioAttributes(ALARM_AUDIO_ATTRIBUTES)
+            player.setDataSource(this, alarmUri)
+            player.isLooping = true
+            player.setOnErrorListener { callbackPlayer, what, extra ->
+                handler.post {
+                    handlePlayerError(
+                        player = callbackPlayer,
+                        what = what,
+                        extra = extra,
+                        candidates = candidates,
+                        candidateIndex = candidateIndex,
+                        occurrenceId = occurrenceId,
+                        generation = generation,
+                    )
+                }
+                true
+            }
+            mediaPlayer = player
+            player.prepare()
+            player.start()
+        } catch (error: Throwable) {
+            Log.e(TAG, "Unable to initialize alarm tone $alarmUri", error)
+            if (mediaPlayer === player) mediaPlayer = null
+            releasePlayer(player)
+            if (isCurrentAudioPresentation(occurrenceId, generation)) {
+                startSoundCandidate(candidates, candidateIndex + 1, occurrenceId, generation)
+            }
+        }
+    }
+
+    private fun handlePlayerError(
+        player: MediaPlayer,
+        what: Int,
+        extra: Int,
+        candidates: List<Uri>,
+        candidateIndex: Int,
+        occurrenceId: String,
+        generation: Long,
+    ) {
+        if (mediaPlayer !== player || !isCurrentAudioPresentation(occurrenceId, generation)) {
+            return
+        }
+        Log.e(TAG, "Alarm audio playback error what=$what extra=$extra")
+        mediaPlayer = null
+        releasePlayer(player)
+        startSoundCandidate(candidates, candidateIndex + 1, occurrenceId, generation)
+    }
+
+    private fun isCurrentAudioPresentation(occurrenceId: String, generation: Long): Boolean =
+        currentOccurrenceId == occurrenceId &&
+            activeOutputOccurrenceId == occurrenceId &&
+            audioPresentationGeneration == generation
+
+    private fun releasePlayer(player: MediaPlayer) {
+        runCatching { player.setOnErrorListener(null) }
+        runCatching { player.stop() }
+        runCatching { player.release() }
+    }
+
+    private fun abandonAudioFocusIfOwned(occurrenceId: String, generation: Long) {
+        val request = audioFocusRequest ?: return
+        if (audioFocusOccurrenceId != occurrenceId || audioFocusGeneration != generation) return
+        runCatching { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(request) }
+        if (audioFocusRequest === request &&
+            audioFocusOccurrenceId == occurrenceId && audioFocusGeneration == generation
+        ) {
+            audioFocusRequest = null
+            audioFocusOccurrenceId = null
+            audioFocusGeneration = null
+        }
+    }
+
+    private fun stopConfigurableRingingOutput() {
+        ++audioPresentationGeneration
+        mediaPlayer?.let(::releasePlayer)
+        mediaPlayer = null
+        runCatching { vibrator?.cancel() }
+        vibrator = null
+        audioFocusRequest?.let { request ->
+            runCatching { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(request) }
+        }
+        audioFocusRequest = null
+        audioFocusOccurrenceId = null
+        audioFocusGeneration = null
+        activeOutputOccurrenceId = null
+        activePreferenceSnapshot = null
     }
 
     @Synchronized
@@ -334,15 +467,7 @@ class AlarmRingingService : Service() {
         if (!cleanedUp) {
             cleanedUp = true
             handler.removeCallbacks(stopCurrentAfterTimeout)
-            runCatching { mediaPlayer?.stop() }
-            runCatching { mediaPlayer?.release() }
-            mediaPlayer = null
-            runCatching { vibrator?.cancel() }
-            vibrator = null
-            audioFocusRequest?.let { request ->
-                runCatching { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(request) }
-            }
-            audioFocusRequest = null
+            stopConfigurableRingingOutput()
             wakeLock?.let { lock -> if (lock.isHeld) runCatching { lock.release() } }
             wakeLock = null
             ringingResourcesStarted = false

@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
@@ -73,8 +74,14 @@ data class CapabilityItem(
 fun MedicationListScreen(
     medications: List<MedicationWithTimes>,
     capabilityItems: List<CapabilityItem>,
+    alarmSoundLabel: String,
+    vibrationEnabled: Boolean,
+    snoozeMinutes: Int,
     showSamsungGuidance: Boolean,
     onSamsungSettings: () -> Unit,
+    onChooseAlarmSound: () -> Unit,
+    onVibrationEnabledChange: (Boolean) -> Unit,
+    onSnoozeMinutesChange: (Int) -> Unit,
     onAdd: () -> Unit,
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
@@ -87,6 +94,36 @@ fun MedicationListScreen(
     ) {
         Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Alarm behavior", style = MaterialTheme.typography.titleLarge)
+                Text("Sound", style = MaterialTheme.typography.titleMedium)
+                Text(alarmSoundLabel, style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick = onChooseAlarmSound) { Text("Choose alarm sound") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Vibration", style = MaterialTheme.typography.titleMedium)
+                    Switch(
+                        checked = vibrationEnabled,
+                        onCheckedChange = onVibrationEnabledChange,
+                        modifier = Modifier.testTag("alarm-vibration-toggle"),
+                    )
+                }
+                Text("Snooze duration", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(5, 10, 15, 30).forEach { minutes ->
+                        FilterChip(
+                            selected = snoozeMinutes == minutes,
+                            onClick = { onSnoozeMinutesChange(minutes) },
+                            label = { Text("$minutes min") },
+                        )
+                    }
+                }
+            }
+        }
         if (medications.isEmpty()) Text("No medications yet.")
         medications.forEach { item ->
             Card(modifier = Modifier.fillMaxWidth()) {

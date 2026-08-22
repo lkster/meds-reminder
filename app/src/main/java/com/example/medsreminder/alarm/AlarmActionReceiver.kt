@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.Log
 import com.example.medsreminder.data.AlarmOccurrenceEntity
 import com.example.medsreminder.data.AppDatabase
+import com.example.medsreminder.data.OccurrenceDetails
 import com.example.medsreminder.data.OccurrenceKind
 import com.example.medsreminder.data.OccurrenceStatus
 import java.util.UUID
@@ -65,12 +66,13 @@ class AlarmActionReceiver : BroadcastReceiver() {
         val scheduler = AlarmScheduler(context)
         if (!scheduler.canScheduleExactAlarms()) return
 
-        val snooze = AlarmOccurrenceEntity(
-            id = UUID.randomUUID().toString(),
-            reminderTimeId = original.reminderTimeId,
-            kind = OccurrenceKind.SNOOZE,
-            scheduledAtEpochMillis = System.currentTimeMillis() + SNOOZE_MILLIS,
-            status = OccurrenceStatus.SCHEDULED,
+        val snoozeMinutes = AlarmPreferences.read(context).snoozeMinutes
+        val actionNowMillis = System.currentTimeMillis()
+        val snooze = createSnoozeOccurrence(
+            original = original,
+            nowMillis = actionNowMillis,
+            snoozeMinutes = snoozeMinutes,
+            snoozeId = UUID.randomUUID().toString(),
         )
         val registration = scheduler.registerOccurrence(snooze, original.medicationId)
         if (registration.isFailure) {
@@ -79,7 +81,7 @@ class AlarmActionReceiver : BroadcastReceiver() {
         }
 
         val committed = runCatching {
-            dao.commitSnooze(occurrenceId, snooze, System.currentTimeMillis())
+            dao.commitSnooze(occurrenceId, snooze, actionNowMillis)
         }.getOrElse {
             Log.e(TAG, "Unable to commit snooze", it)
             false
@@ -98,7 +100,6 @@ class AlarmActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "com.example.medsreminder.action.SNOOZE"
         const val ACTION_SKIP = "com.example.medsreminder.action.SKIP"
 
-        private const val SNOOZE_MILLIS = 5 * 60 * 1000L
         private const val TAG = "AlarmActionReceiver"
         private val ALLOWED_ACTIONS = setOf(ACTION_TAKEN, ACTION_SNOOZE, ACTION_SKIP)
 
@@ -128,4 +129,20 @@ class AlarmActionReceiver : BroadcastReceiver() {
             return uri.pathSegments.takeIf { it.size == 2 }?.get(1)
         }
     }
+}
+
+internal fun createSnoozeOccurrence(
+    original: OccurrenceDetails,
+    nowMillis: Long,
+    snoozeMinutes: Int,
+    snoozeId: String,
+): AlarmOccurrenceEntity {
+    require(snoozeMinutes in AlarmPreferences.ALLOWED_SNOOZE_MINUTES)
+    return AlarmOccurrenceEntity(
+        id = snoozeId,
+        reminderTimeId = original.reminderTimeId,
+        kind = OccurrenceKind.SNOOZE,
+        scheduledAtEpochMillis = nowMillis + snoozeMinutes * 60_000L,
+        status = OccurrenceStatus.SCHEDULED,
+    )
 }

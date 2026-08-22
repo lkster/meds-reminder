@@ -12,6 +12,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.medsreminder.data.MedicationEntity
@@ -50,8 +51,14 @@ class MedicationScreensTest {
                 MedicationListScreen(
                     medications = listOf(item),
                     capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default",
+                    vibrationEnabled = true,
+                    snoozeMinutes = 5,
                     showSamsungGuidance = false,
                     onSamsungSettings = {},
+                    onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {},
                     onAdd = {},
                     onEdit = {},
                     onToggle = { _, _ -> },
@@ -61,6 +68,46 @@ class MedicationScreensTest {
         }
 
         compose.onNode(hasText("Mon Wed Fri", substring = true)).assertExists()
+    }
+
+    @Test
+    fun alarmBehaviorControlsExposeGlobalSoundVibrationAndSnoozeChoices() {
+        var vibrationEnabled by mutableStateOf(true)
+        var snoozeMinutes by mutableStateOf(5)
+        var chooseSoundClicks = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(),
+                    capabilityItems = emptyList(),
+                    alarmSoundLabel = "Morning Bell",
+                    vibrationEnabled = vibrationEnabled,
+                    snoozeMinutes = snoozeMinutes,
+                    showSamsungGuidance = false,
+                    onSamsungSettings = {},
+                    onChooseAlarmSound = { chooseSoundClicks++ },
+                    onVibrationEnabledChange = { vibrationEnabled = it },
+                    onSnoozeMinutesChange = { snoozeMinutes = it },
+                    onAdd = {},
+                    onEdit = {},
+                    onToggle = { _, _ -> },
+                    onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Morning Bell").assertExists()
+        compose.onNodeWithText("5 min").assertIsSelected()
+        compose.onNodeWithText("15 min").performClick()
+        compose.onNodeWithText("15 min").assertIsSelected()
+        compose.onNodeWithText("Choose alarm sound").performClick()
+        compose.onNodeWithTag("alarm-vibration-toggle").performClick()
+
+        compose.runOnIdle {
+            assertEquals(15, snoozeMinutes)
+            assertEquals(1, chooseSoundClicks)
+            assertEquals(false, vibrationEnabled)
+        }
     }
 
     @Test

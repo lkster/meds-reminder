@@ -115,7 +115,7 @@ class AlarmActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             ) {
-                Text("Snooze 5 minutes")
+                Text("Snooze")
             }
             OutlinedButton(
                 onClick = { resolve(AlarmActionReceiver.ACTION_SKIP, current.occurrenceId) },

@@ -1,11 +1,13 @@
 package com.example.medsreminder
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import androidx.room.withTransaction
 import com.example.medsreminder.alarm.AlarmRingingService
+import com.example.medsreminder.alarm.AlarmPreferenceSnapshot
+import com.example.medsreminder.alarm.AlarmPreferences
 import com.example.medsreminder.alarm.AlarmReconciler
 import com.example.medsreminder.alarm.AlarmScheduler
 import com.example.medsreminder.alarm.ReconciliationMode
@@ -51,11 +55,20 @@ class MainActivity : ComponentActivity() {
     private var medications by mutableStateOf<List<MedicationWithTimes>>(emptyList())
     private var editor by mutableStateOf<EditorDraft?>(null)
     private var capabilities by mutableStateOf(CapabilityState())
+    private var alarmPreferences by mutableStateOf(
+        AlarmPreferenceSnapshot(
+            selectedSoundUri = null,
+            vibrationEnabled = true,
+            snoozeMinutes = AlarmPreferences.DEFAULT_SNOOZE_MINUTES,
+        ),
+    )
+    private var alarmSoundLabel by mutableStateOf("System default")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AlarmRingingService.ensureNotificationChannel(this)
         refreshCapabilities()
+        refreshAlarmPreferences()
         lifecycleScope.launch {
             database.medicationDao().observeAll().collectLatest { medications = it }
         }
@@ -69,6 +82,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshCapabilities()
+        refreshAlarmPreferences()
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching { reconciler.reconcile(ReconciliationMode.ROUTINE) }
             if (!scheduler.projectionReady()) {
@@ -85,6 +99,25 @@ class MainActivity : ComponentActivity() {
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { refreshCapabilities() }
+        val ringtonePickerLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val pickedUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    result.data?.getParcelableExtra(
+                        RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                        Uri::class.java,
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                }
+                if (pickedUri != null) {
+                    AlarmPreferences.setSoundUri(this, pickedUri)
+                    refreshAlarmPreferences()
+                }
+            }
+        }
         val currentEditor = editor
         if (currentEditor != null) {
             MedicationEditorScreen(
@@ -133,8 +166,36 @@ class MainActivity : ComponentActivity() {
         MedicationListScreen(
             medications = medications,
             capabilityItems = capabilityItems,
+            alarmSoundLabel = alarmSoundLabel,
+            vibrationEnabled = alarmPreferences.vibrationEnabled,
+            snoozeMinutes = alarmPreferences.snoozeMinutes,
             showSamsungGuidance = Build.MANUFACTURER.equals("samsung", ignoreCase = true),
             onSamsungSettings = ::openAppNotificationSettings,
+            onChooseAlarmSound = {
+                ringtonePickerLauncher.launch(
+                    Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                            AlarmPreferences.defaultAlarmUri(),
+                        )
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                            AlarmPreferences.pickerExistingUri(this@MainActivity),
+                        )
+                    },
+                )
+            },
+            onVibrationEnabledChange = { enabled ->
+                AlarmPreferences.setVibrationEnabled(this, enabled)
+                refreshAlarmPreferences()
+            },
+            onSnoozeMinutesChange = { minutes ->
+                AlarmPreferences.setSnoozeMinutes(this, minutes)
+                refreshAlarmPreferences()
+            },
             onAdd = { editor = EditorDraft.new() },
             onEdit = { editor = EditorDraft.from(it) },
             onToggle = { item, enabled -> saveMedication(EditorDraft.from(item).copy(enabled = enabled)) },
@@ -222,6 +283,26 @@ class MainActivity : ComponentActivity() {
             fullScreenAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
                 notificationManager.canUseFullScreenIntent(),
         )
+    }
+
+    private fun refreshAlarmPreferences() {
+        alarmPreferences = AlarmPreferences.read(this)
+        val selectedUri = alarmPreferences.selectedSoundUri
+        alarmSoundLabel = if (selectedUri == null) {
+            "System default"
+        } else {
+            runCatching {
+                val ringtone = RingtoneManager.getRingtone(this, selectedUri)
+                try {
+                    ringtone?.getTitle(this)
+                } finally {
+                    runCatching { ringtone?.stop() }
+                }
+            }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: "Selected alarm sound"
+        }
     }
 
     private fun openExactAlarmSettings() = startActivity(

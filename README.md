@@ -1,9 +1,14 @@
-# Meds Reminder M2
+# Meds Reminder M3
 
-Meds Reminder is an Android-first, local medication reminder. M2 supports multiple medications,
+Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
-occurrence can be resolved as Taken, Snoozed for five minutes, or Skipped.
+occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M3 adds global alarm behavior preferences. The app can use the current system-default alarm tone or
+an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,
+and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
+in credential-protected SharedPreferences and do not change the Room v2 schema.
 
 ## Alarm behavior
 
@@ -17,6 +22,13 @@ channel intentionally has no channel-owned sound or vibration. A single persiste
 presents due occurrences sequentially, and its temporary ten-minute safety timeout resets for each
 presented occurrence.
 
+Sound and vibration are captured when each occurrence begins presentation. An ordinary refresh of
+the same occurrence does not change its active output, while the next queued occurrence reads fresh
+preferences after its actionable notification is updated. A recreated service may read current
+preferences again because presentation settings are intentionally not persisted per occurrence.
+An unavailable explicit ringtone falls back once to the current system-default alarm tone; failure
+of both tones leaves the notification/full-screen presentation and any enabled vibration active.
+
 Normal delivery accepts an occurrence up to the explicit two-minute `DELIVERY_GRACE_MILLIS` policy.
 This protects an AlarmManager broadcast already in flight during routine reconciliation while still
 rejecting materially late delivery. Reboot/package-update/exact-access recovery does not catch up
@@ -29,13 +41,14 @@ grace-valid due BASE may temporarily coexist with it.
 
 ## Persistence
 
-Room schema version 2 adds `reminder_times.weekday_mask` as `INTEGER NOT NULL DEFAULT 127`.
+Room remains at schema version 2, which adds `reminder_times.weekday_mask` as
+`INTEGER NOT NULL DEFAULT 127`.
 The non-destructive v1-to-v2 migration maps every existing daily schedule to all seven weekdays
 without changing medication IDs, reminder-time IDs, occurrence UUIDs, or occurrence history.
 
 ## Direct Boot limitation
 
-Medication data is stored in credential-protected Room storage. M2 deliberately does not duplicate
+Medication data is stored in credential-protected Room storage. M3 deliberately does not duplicate
 medication names or schedules into device-protected storage. `LOCKED_BOOT_COMPLETED` therefore does
 not access Room or restore medication alarms. `BOOT_COMPLETED` reconciles after the first unlock.
 
@@ -66,8 +79,8 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 .\gradlew.bat connectedDebugAndroidTest
 ```
 
-Emulator validation covers CRUD, weekday edits, grace-valid delivery, edit/disable/delete
-cancellation, reboot reconciliation, Snooze, queue advancement, and resource cleanup. The accepted
-Samsung S23 alarm-presentation result does not need to be repeated for M2 because the alarm activity,
-ringing service, notification/channel, full-screen session identity, foreground startup, and alarm
-actions are unchanged.
+Targeted emulator validation should cover CRUD, weekday edits, preference persistence and fallback,
+grace-valid delivery, edit/disable/delete cancellation, reboot reconciliation, configurable Snooze,
+queue advancement, and resource cleanup. M3 requires focused Samsung S23 regression for selected
+ringtone persistence/playback, vibration on/off, queued output transition, and one core lockscreen
+alarm.
