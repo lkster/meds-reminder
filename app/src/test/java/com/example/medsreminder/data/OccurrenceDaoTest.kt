@@ -2,6 +2,7 @@ package com.example.medsreminder.data
 
 import androidx.room.Room
 import java.util.UUID
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -19,6 +20,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [31])
 class OccurrenceDaoTest {
     private lateinit var database: AppDatabase
+    private var medicationId: Long = 0
     private var reminderTimeId: Long = 0
 
     @Before
@@ -27,7 +29,7 @@ class OccurrenceDaoTest {
             RuntimeEnvironment.getApplication(),
             AppDatabase::class.java,
         ).allowMainThreadQueries().build()
-        val medicationId = database.medicationDao().insertMedication(
+        medicationId = database.medicationDao().insertMedication(
             MedicationEntity(name = "Medicine", instructions = null, enabled = true),
         )
         reminderTimeId = database.medicationDao().insertTime(
@@ -135,6 +137,137 @@ class OccurrenceDaoTest {
         assertNull(database.occurrenceDao().get(scheduled.id))
         assertNull(database.occurrenceDao().get(ringing.id))
         assertEquals(OccurrenceStatus.TAKEN, database.occurrenceDao().get(taken.id)?.status)
+    }
+
+    @Test
+    fun historyReturnsOnlyQualifyingOutcomesInDeterministicNewestFirstOrder() = runBlocking {
+        val taken = occurrence(OccurrenceStatus.TAKEN, scheduledAt = 5_000L)
+            .copy(resolvedAtEpochMillis = 5_200L)
+        val skipped = occurrence(OccurrenceStatus.SKIPPED, scheduledAt = 4_000L)
+            .copy(resolvedAtEpochMillis = 4_200L)
+        val timedOutSnooze = occurrence(
+            status = OccurrenceStatus.TIMED_OUT,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAt = 3_000L,
+        ).copy(resolvedAtEpochMillis = 3_200L)
+        val sameTimeLaterResolution = occurrence(
+            status = OccurrenceStatus.TAKEN,
+            scheduledAt = 2_500L,
+        ).copy(resolvedAtEpochMillis = 2_700L)
+        val sameTimeEarlierResolution = occurrence(
+            status = OccurrenceStatus.SKIPPED,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAt = 2_500L,
+        ).copy(resolvedAtEpochMillis = 2_600L)
+        val scheduled = occurrence(OccurrenceStatus.SCHEDULED, scheduledAt = 2_000L)
+        val ringing = occurrence(OccurrenceStatus.RINGING, scheduledAt = 1_900L)
+        val snoozed = occurrence(OccurrenceStatus.SNOOZED, scheduledAt = 1_800L)
+        val expired = occurrence(OccurrenceStatus.EXPIRED, scheduledAt = 1_700L)
+        listOf(
+            taken,
+            skipped,
+            timedOutSnooze,
+            sameTimeLaterResolution,
+            sameTimeEarlierResolution,
+            scheduled,
+            ringing,
+            snoozed,
+            expired,
+        )
+            .forEach { database.occurrenceDao().insert(it) }
+
+        val history = database.occurrenceDao().observeHistory().first()
+
+        assertEquals(
+            listOf(
+                taken.id,
+                skipped.id,
+                timedOutSnooze.id,
+                sameTimeLaterResolution.id,
+                sameTimeEarlierResolution.id,
+            ),
+            history.map { it.occurrenceId },
+        )
+        assertEquals("Medicine", history.first().medicationName)
+        assertEquals(OccurrenceKind.SNOOZE, history.last().kind)
+    }
+
+    @Test
+    fun historyUsesCurrentMedicationNameAndPersistedScheduledInstant() = runBlocking {
+        val taken = occurrence(OccurrenceStatus.TAKEN, scheduledAt = 8_000L)
+            .copy(resolvedAtEpochMillis = 8_100L)
+        database.occurrenceDao().insert(taken)
+        val medication = database.medicationDao().get(medicationId)!!
+        database.medicationDao().updateMedication(medication.copy(name = "Renamed medicine", instructions = "New dose"))
+        val reminder = database.medicationDao().getTimes(medicationId).single()
+        database.medicationDao().updateTime(reminder.copy(minuteOfDay = 10 * 60))
+
+        val history = database.occurrenceDao().observeHistory().first().single()
+
+        assertEquals("Renamed medicine", history.medicationName)
+        assertEquals(8_000L, history.scheduledAtEpochMillis)
+    }
+
+    @Test
+    fun historyUsesOccurrenceIdForIdenticalScheduledAndResolvedTimestampTie() = runBlocking {
+        val lowerId = occurrence(OccurrenceStatus.TAKEN, scheduledAt = 6_000L).copy(
+            id = "a-history-tie",
+            resolvedAtEpochMillis = 6_100L,
+        )
+        val higherId = occurrence(
+            status = OccurrenceStatus.SKIPPED,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAt = 6_000L,
+        ).copy(
+            id = "z-history-tie",
+            resolvedAtEpochMillis = 6_100L,
+        )
+        database.occurrenceDao().insert(lowerId)
+        database.occurrenceDao().insert(higherId)
+
+        assertEquals(
+            listOf(higherId.id, lowerId.id),
+            database.occurrenceDao().observeHistory().first().map { it.occurrenceId },
+        )
+    }
+
+    @Test
+    fun pendingSnoozeRemovalLeavesNoQualifyingHistoryAndCascadesDeleteHistory() = runBlocking {
+        val original = occurrence(OccurrenceStatus.RINGING, scheduledAt = 1_000L)
+        val snooze = occurrence(
+            status = OccurrenceStatus.SCHEDULED,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAt = 2_000L,
+        )
+        database.occurrenceDao().insert(original)
+        assertTrue(database.occurrenceDao().commitSnooze(original.id, snooze, 1_100L))
+
+        database.occurrenceDao().deleteNonterminal(reminderTimeId)
+
+        assertTrue(database.occurrenceDao().observeHistory().first().isEmpty())
+
+        val taken = occurrence(OccurrenceStatus.TAKEN, scheduledAt = 3_000L)
+            .copy(resolvedAtEpochMillis = 3_100L)
+        database.occurrenceDao().insert(taken)
+        database.medicationDao().deleteTime(database.medicationDao().getTimes(medicationId).single())
+
+        assertTrue(database.occurrenceDao().observeHistory().first().isEmpty())
+
+        val replacementReminderId = database.medicationDao().insertTime(
+            ReminderTimeEntity(medicationId = medicationId, minuteOfDay = 9 * 60),
+        )
+        val replacement = AlarmOccurrenceEntity(
+            id = UUID.randomUUID().toString(),
+            reminderTimeId = replacementReminderId,
+            kind = OccurrenceKind.BASE,
+            scheduledAtEpochMillis = 4_000L,
+            status = OccurrenceStatus.SKIPPED,
+            resolvedAtEpochMillis = 4_100L,
+        )
+        database.occurrenceDao().insert(replacement)
+        database.medicationDao().deleteMedication(database.medicationDao().get(medicationId)!!)
+
+        assertTrue(database.occurrenceDao().observeHistory().first().isEmpty())
     }
 
     private fun occurrence(

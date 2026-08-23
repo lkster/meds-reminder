@@ -8,6 +8,7 @@ import com.example.medsreminder.alarm.AlarmReconciler
 import com.example.medsreminder.alarm.AlarmScheduler
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,6 +57,41 @@ class AppDaoInstrumentedTest {
 
         assertEquals(emptyList<ReminderTimeEntity>(), database.medicationDao().getTimes(medicationId))
         assertEquals(null, database.occurrenceDao().get("018f5f7f-4af8-7c3d-9f67-0a8db8929999"))
+    }
+
+    @Test
+    fun historyQueryJoinsCurrentMedicationNameAndStoredOccurrenceTime() = runBlocking {
+        val medicationId = database.medicationDao().insertMedication(
+            MedicationEntity(name = "Original", instructions = "Do not show", enabled = true),
+        )
+        val reminderTimeId = database.medicationDao().insertTime(
+            ReminderTimeEntity(medicationId = medicationId, minuteOfDay = 8 * 60),
+        )
+        database.occurrenceDao().insert(
+            occurrence(
+                id = "018f5f7f-4af8-7c3d-9f67-0a8db8920010",
+                reminderTimeId = reminderTimeId,
+                status = OccurrenceStatus.TAKEN,
+                scheduledAt = 8_000L,
+            ).copy(resolvedAtEpochMillis = 8_100L),
+        )
+        database.occurrenceDao().insert(
+            occurrence(
+                id = "018f5f7f-4af8-7c3d-9f67-0a8db8920011",
+                reminderTimeId = reminderTimeId,
+                status = OccurrenceStatus.EXPIRED,
+                scheduledAt = 9_000L,
+            ).copy(resolvedAtEpochMillis = 9_100L),
+        )
+        database.medicationDao().updateMedication(
+            database.medicationDao().get(medicationId)!!.copy(name = "Renamed"),
+        )
+
+        val history = database.occurrenceDao().observeHistory().first()
+
+        assertEquals(1, history.size)
+        assertEquals("Renamed", history.single().medicationName)
+        assertEquals(8_000L, history.single().scheduledAtEpochMillis)
     }
 
     @Test

@@ -24,6 +24,19 @@ private const val DETAILS_SELECT = """
     INNER JOIN medications m ON m.id = rt.medication_id
 """
 
+private const val HISTORY_SELECT = """
+    SELECT ao.id AS occurrence_id,
+           m.id AS medication_id,
+           m.name AS medication_name,
+           ao.kind,
+           ao.status,
+           ao.scheduled_at_epoch_millis,
+           ao.resolved_at_epoch_millis
+    FROM alarm_occurrences ao
+    INNER JOIN reminder_times rt ON rt.id = ao.reminder_time_id
+    INNER JOIN medications m ON m.id = rt.medication_id
+"""
+
 @Dao
 interface OccurrenceDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -48,6 +61,14 @@ interface OccurrenceDao {
             "ao.presented_at_epoch_millis, ao.scheduled_at_epoch_millis, ao.id LIMIT 1",
     )
     fun observeCurrentRinging(): Flow<OccurrenceDetails?>
+
+    @Query(
+        "$HISTORY_SELECT WHERE ao.status IN ('TAKEN', 'SKIPPED', 'TIMED_OUT') " +
+            "ORDER BY ao.scheduled_at_epoch_millis DESC, " +
+            "CASE WHEN ao.resolved_at_epoch_millis IS NULL THEN 1 ELSE 0 END, " +
+            "ao.resolved_at_epoch_millis DESC, ao.id DESC",
+    )
+    fun observeHistory(): Flow<List<HistoryOccurrence>>
 
     @Query("SELECT COUNT(*) FROM alarm_occurrences WHERE status = 'RINGING'")
     suspend fun ringingCount(): Int

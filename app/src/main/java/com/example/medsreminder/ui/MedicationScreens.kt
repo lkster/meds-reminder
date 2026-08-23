@@ -82,6 +82,7 @@ fun MedicationListScreen(
     onChooseAlarmSound: () -> Unit,
     onVibrationEnabledChange: (Boolean) -> Unit,
     onSnoozeMinutesChange: (Int) -> Unit,
+    onHistory: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
@@ -92,7 +93,14 @@ fun MedicationListScreen(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
+            OutlinedButton(onClick = onHistory) { Text("History") }
+        }
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -181,7 +189,7 @@ fun MedicationListScreen(
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Delete ${item.medication.name}?") },
-            text = { Text("Its reminder times and pending alarms will be removed.") },
+            text = { Text("Its reminder times, pending alarms, and history will be removed.") },
             confirmButton = {
                 TextButton(onClick = {
                     deleteCandidate = null
@@ -227,6 +235,12 @@ fun MedicationEditorScreen(
             Switch(draft.enabled, { onDraftChange(draft.copy(enabled = it)) })
         }
         Text("Reminder schedules", style = MaterialTheme.typography.titleMedium)
+        if (draft.id != null) {
+            Text(
+                "Removing a reminder and saving also deletes its history.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         draft.times.forEachIndexed { index, time ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

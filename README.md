@@ -1,4 +1,4 @@
-# Meds Reminder M3
+# Meds Reminder M4
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -9,6 +9,18 @@ M3 adds global alarm behavior preferences. The app can use the current system-de
 an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
+
+## Factual medication history
+
+M4 adds a newest-first history of retained, unambiguous factual outcomes: Taken, Skipped, and
+No response after a presented alarm times out. It uses each occurrence's persisted scheduled instant
+and the medication's current name. A qualifying Snooze occurrence is marked After snooze; M4 does
+not reconstruct Snooze chains, original BASE times, or Snooze counts.
+
+History is not a complete audit trail of scheduled doses, reminder journeys, or alarm attempts.
+Snoozed and Expired occurrences are intentionally excluded. Existing disabling, schedule-edit, and
+delete behavior can remove nonterminal or cascaded occurrences, leaving no visible history item.
+Deleting a medication or reminder also deletes its associated history.
 
 ## Alarm behavior
 
@@ -81,6 +93,11 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 Targeted emulator validation should cover CRUD, weekday edits, preference persistence and fallback,
 grace-valid delivery, edit/disable/delete cancellation, reboot reconciliation, configurable Snooze,
-queue advancement, and resource cleanup. M3 requires focused Samsung S23 regression for selected
-ringtone persistence/playback, vibration on/off, queued output transition, and one core lockscreen
-alarm.
+queue advancement, resource cleanup, and factual history rendering.
+
+Deferred Samsung Galaxy S23 validation remains:
+
+- custom ringtone playback;
+- vibration OFF;
+- FSI/lockscreen regression;
+- selected ringtone persistence after reboot.

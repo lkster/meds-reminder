@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.lifecycleScope
 import androidx.room.withTransaction
 import com.example.medsreminder.alarm.AlarmRingingService
@@ -32,6 +33,7 @@ import com.example.medsreminder.alarm.AlarmReconciler
 import com.example.medsreminder.alarm.AlarmScheduler
 import com.example.medsreminder.alarm.ReconciliationMode
 import com.example.medsreminder.data.AppDatabase
+import com.example.medsreminder.data.HistoryOccurrence
 import com.example.medsreminder.data.MedicationScheduleEdit
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.ReminderScheduleEdit
@@ -39,8 +41,11 @@ import com.example.medsreminder.data.WeekdayMask
 import com.example.medsreminder.data.applyMedicationScheduleEdit
 import com.example.medsreminder.ui.CapabilityItem
 import com.example.medsreminder.ui.EditorDraft
+import com.example.medsreminder.ui.HistoryItem
+import com.example.medsreminder.ui.HistoryScreen
 import com.example.medsreminder.ui.MedicationEditorScreen
 import com.example.medsreminder.ui.MedicationListScreen
+import com.example.medsreminder.ui.toHistoryItem
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -53,6 +58,7 @@ class MainActivity : ComponentActivity() {
     private val reconciler by lazy { AlarmReconciler(this, database, scheduler) }
 
     private var medications by mutableStateOf<List<MedicationWithTimes>>(emptyList())
+    private var history by mutableStateOf<List<HistoryItem>>(emptyList())
     private var editor by mutableStateOf<EditorDraft?>(null)
     private var capabilities by mutableStateOf(CapabilityState())
     private var alarmPreferences by mutableStateOf(
@@ -71,6 +77,11 @@ class MainActivity : ComponentActivity() {
         refreshAlarmPreferences()
         lifecycleScope.launch {
             database.medicationDao().observeAll().collectLatest { medications = it }
+        }
+        lifecycleScope.launch {
+            database.occurrenceDao().observeHistory().collectLatest { occurrences ->
+                history = occurrences.map(HistoryOccurrence::toHistoryItem)
+            }
         }
         setContent {
             MaterialTheme {
@@ -96,6 +107,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun MainContent() {
+        var historyVisible by rememberSaveable { mutableStateOf(false) }
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { refreshCapabilities() }
@@ -126,6 +138,10 @@ class MainActivity : ComponentActivity() {
                 onSave = { saveMedication(it) },
                 onCancel = { editor = null },
             )
+            return
+        }
+        if (historyVisible) {
+            HistoryScreen(history = history, onBack = { historyVisible = false })
             return
         }
 
@@ -196,6 +212,7 @@ class MainActivity : ComponentActivity() {
                 AlarmPreferences.setSnoozeMinutes(this, minutes)
                 refreshAlarmPreferences()
             },
+            onHistory = { historyVisible = true },
             onAdd = { editor = EditorDraft.new() },
             onEdit = { editor = EditorDraft.from(it) },
             onToggle = { item, enabled -> saveMedication(EditorDraft.from(item).copy(enabled = enabled)) },
