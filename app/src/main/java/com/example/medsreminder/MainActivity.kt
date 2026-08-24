@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
@@ -95,13 +96,7 @@ class MainActivity : ComponentActivity() {
         refreshCapabilities()
         refreshAlarmPreferences()
         lifecycleScope.launch(Dispatchers.IO) {
-            runCatching { reconciler.reconcile(ReconciliationMode.ROUTINE) }
-            if (!scheduler.projectionReady()) {
-                // Do not revive audio/vibration when its actionable presentation is no longer
-                // available. Future BASE state remains persisted for a later reconciliation.
-                database.occurrenceDao().expireAllRinging(System.currentTimeMillis())
-            }
-            AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
+            synchronizeRingingOnResume(this@MainActivity, database, scheduler, reconciler)
         }
     }
 
@@ -361,4 +356,19 @@ class MainActivity : ComponentActivity() {
         val exactAlarmsAllowed: Boolean = false,
         val fullScreenAllowed: Boolean = false,
     )
+}
+
+internal suspend fun synchronizeRingingOnResume(
+    context: Context,
+    database: AppDatabase,
+    scheduler: AlarmScheduler,
+    reconciler: AlarmReconciler,
+) {
+    runCatching { reconciler.reconcile(ReconciliationMode.ROUTINE) }
+    if (!scheduler.requiredPresentationReady()) {
+        // Do not revive audio/vibration when its actionable presentation is no longer available.
+        // Exact projection and FSI capability are deliberately not expiry inputs here.
+        database.occurrenceDao().expireAllRinging(System.currentTimeMillis())
+    }
+    AlarmRingingService.synchronizeWithPersistedQueue(context, database)
 }

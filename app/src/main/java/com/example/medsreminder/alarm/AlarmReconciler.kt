@@ -29,23 +29,26 @@ class AlarmReconciler(
         val desired = database.withTransaction {
             val occurrenceDao = database.occurrenceDao()
             val medicationDao = database.medicationDao()
-            val strictRecovery = mode == ReconciliationMode.REBOOT ||
+            val strictScheduledRecovery = mode == ReconciliationMode.REBOOT ||
                 mode == ReconciliationMode.PACKAGE_REPLACED ||
                 mode == ReconciliationMode.EXACT_PERMISSION_RESTORED
-            val expiryCutoff = if (strictRecovery) nowMillis else {
+            val expiryCutoff = if (strictScheduledRecovery) nowMillis else {
                 AlarmScheduler.routineExpiryCutoff(nowMillis)
             }
 
             obsoleteIds += occurrenceDao.getPastScheduledIds(expiryCutoff)
             occurrenceDao.expireScheduledThrough(expiryCutoff, nowMillis)
 
-            if (strictRecovery) {
+            if (mode == ReconciliationMode.REBOOT) {
                 occurrenceDao.expireAllRinging(nowMillis)
             } else if (occurrenceDao.presentedRingingCount() == 0) {
                 // A persisted queue is valid only while one occurrence owns the presentation.
                 // This clears an orphaned receiver claim without timing out occurrences queued
                 // behind an actively presented alarm.
-                occurrenceDao.expireUnpresentedRingingThrough(expiryCutoff, nowMillis)
+                occurrenceDao.expireUnpresentedRingingThrough(
+                    AlarmScheduler.routineExpiryCutoff(nowMillis),
+                    nowMillis,
+                )
             }
 
             if (mode == ReconciliationMode.WALL_CLOCK_CHANGED) {

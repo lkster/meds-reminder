@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.UserManager
 import android.util.Log
+import com.example.medsreminder.data.AppDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,10 +38,23 @@ class AlarmRescheduleReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val scheduler = AlarmScheduler(context.applicationContext)
-                if (mode != ReconciliationMode.EXACT_PERMISSION_RESTORED ||
-                    scheduler.canScheduleExactAlarms()
+                if (mode == ReconciliationMode.EXACT_PERMISSION_RESTORED &&
+                    !scheduler.canScheduleExactAlarms()
+                ) return@launch
+
+                val database = AppDatabase.get(context.applicationContext)
+                AlarmReconciler(
+                    context.applicationContext,
+                    database,
+                    scheduler,
+                ).reconcile(mode)
+                if (mode == ReconciliationMode.PACKAGE_REPLACED ||
+                    mode == ReconciliationMode.EXACT_PERMISSION_RESTORED
                 ) {
-                    AlarmReconciler(context.applicationContext, scheduler = scheduler).reconcile(mode)
+                    AlarmRingingService.synchronizeWithPersistedQueue(
+                        context.applicationContext,
+                        database,
+                    )
                 }
             } catch (error: Throwable) {
                 Log.e(TAG, "Unable to reconcile alarms after ${intent.action}", error)

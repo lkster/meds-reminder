@@ -1,5 +1,6 @@
 package com.example.medsreminder.alarm
 
+import android.app.AlarmManager
 import androidx.room.Room
 import com.example.medsreminder.data.AlarmOccurrenceEntity
 import com.example.medsreminder.data.AppDatabase
@@ -15,12 +16,15 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowAlarmManager
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
@@ -32,6 +36,8 @@ class AlarmReconcilerTest {
 
     @Before
     fun setUp() = runBlocking {
+        ShadowAlarmManager.reset()
+        ShadowAlarmManager.setCanScheduleExactAlarms(true)
         database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
@@ -47,6 +53,7 @@ class AlarmReconcilerTest {
     @After
     fun tearDown() {
         database.close()
+        ShadowAlarmManager.reset()
     }
 
     @Test
@@ -122,6 +129,128 @@ class AlarmReconcilerTest {
             replacement?.scheduledAtEpochMillis,
         )
     }
+
+    @Test
+    fun rebootExpiresPresentedOwnerAndQueuedFollowers() = runBlocking {
+        val now = 1_000_000L
+        database.occurrenceDao().insert(
+            occurrence(now - 60_000L).copy(
+                id = "presented",
+                status = OccurrenceStatus.RINGING,
+                presentedAtEpochMillis = now - 30_000L,
+            ),
+        )
+        database.occurrenceDao().insert(
+            occurrence(now - 30_000L).copy(
+                id = "queued",
+                status = OccurrenceStatus.RINGING,
+            ),
+        )
+
+        reconciler.reconcile(ReconciliationMode.REBOOT, now, ZoneId.of("UTC"))
+
+        assertEquals(OccurrenceStatus.EXPIRED, database.occurrenceDao().get("presented")?.status)
+        assertEquals(OccurrenceStatus.EXPIRED, database.occurrenceDao().get("queued")?.status)
+    }
+
+    @Test
+    fun packageReplacementPreservesPresentedOwnerAndQueuedFollowers() = runBlocking {
+        assertPresentedQueuePreserved(ReconciliationMode.PACKAGE_REPLACED)
+    }
+
+    @Test
+    fun exactRestorationPreservesPresentedOwnerAndQueuedFollowers() = runBlocking {
+        assertPresentedQueuePreserved(ReconciliationMode.EXACT_PERMISSION_RESTORED)
+    }
+
+    @Test
+    fun strictRecoveryUsesRoutineGraceOnlyForUnpresentedOrphans() = runBlocking {
+        val now = 1_000_000L
+        val cutoff = AlarmScheduler.routineExpiryCutoff(now)
+        database.occurrenceDao().insert(
+            occurrence(cutoff).copy(id = "old-orphan", status = OccurrenceStatus.RINGING),
+        )
+        database.occurrenceDao().insert(
+            occurrence(cutoff + 1L).copy(id = "recent-claim", status = OccurrenceStatus.RINGING),
+        )
+
+        reconciler.reconcile(
+            ReconciliationMode.EXACT_PERMISSION_RESTORED,
+            now,
+            ZoneId.of("UTC"),
+        )
+
+        assertEquals(OccurrenceStatus.EXPIRED, database.occurrenceDao().get("old-orphan")?.status)
+        assertEquals(OccurrenceStatus.RINGING, database.occurrenceDao().get("recent-claim")?.status)
+    }
+
+    @Test
+    fun exactRestorationIsIdempotentAndPreservesFutureSnoozeAndBaseIdentity() = runBlocking {
+        val now = Instant.parse("2035-08-20T06:00:00Z").toEpochMilli()
+        val snooze = AlarmOccurrenceEntity(
+            id = "future-snooze",
+            reminderTimeId = reminderTimeId,
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAtEpochMillis = now + 5 * 60_000L,
+            status = OccurrenceStatus.SCHEDULED,
+        )
+        database.occurrenceDao().insert(snooze)
+
+        reconciler.reconcile(ReconciliationMode.EXACT_PERMISSION_RESTORED, now, ZoneId.of("UTC"))
+        val firstBase = database.occurrenceDao().getFutureBase(reminderTimeId, now)!!
+        reconciler.reconcile(ReconciliationMode.EXACT_PERMISSION_RESTORED, now, ZoneId.of("UTC"))
+
+        val scheduled = database.occurrenceDao().getFutureScheduled(now)
+        assertEquals(snooze, database.occurrenceDao().get(snooze.id))
+        assertEquals(1, scheduled.count { it.kind == OccurrenceKind.BASE })
+        assertEquals(firstBase.id, scheduled.single { it.kind == OccurrenceKind.BASE }.id)
+        assertTrue(projectedOccurrenceIds().containsAll(setOf(firstBase.id, snooze.id)))
+    }
+
+    @Test
+    fun routineReconciliationRepairsMissingProjectionWithoutReplacingRoomUuid() = runBlocking {
+        val now = Instant.parse("2035-08-20T06:00:00Z").toEpochMilli()
+        reconciler.reconcile(ReconciliationMode.ROUTINE, now, ZoneId.of("UTC"))
+        val desired = database.occurrenceDao().getFutureBase(reminderTimeId, now)!!
+        assertTrue(desired.id in projectedOccurrenceIds())
+
+        AlarmScheduler(context).cancelOccurrence(desired.id)
+        assertTrue(desired.id !in projectedOccurrenceIds())
+
+        reconciler.reconcile(ReconciliationMode.ROUTINE, now, ZoneId.of("UTC"))
+
+        assertEquals(desired.id, database.occurrenceDao().getFutureBase(reminderTimeId, now)?.id)
+        assertTrue(desired.id in projectedOccurrenceIds())
+    }
+
+    private suspend fun assertPresentedQueuePreserved(mode: ReconciliationMode) {
+        val now = 1_000_000L
+        database.occurrenceDao().insert(
+            occurrence(now - 60_000L).copy(
+                id = "presented",
+                status = OccurrenceStatus.RINGING,
+                presentedAtEpochMillis = now - 30_000L,
+            ),
+        )
+        database.occurrenceDao().insert(
+            occurrence(now - 30_000L).copy(
+                id = "queued",
+                status = OccurrenceStatus.RINGING,
+            ),
+        )
+
+        reconciler.reconcile(mode, now, ZoneId.of("UTC"))
+
+        assertEquals(OccurrenceStatus.RINGING, database.occurrenceDao().get("presented")?.status)
+        assertEquals(OccurrenceStatus.RINGING, database.occurrenceDao().get("queued")?.status)
+        assertEquals("presented", database.occurrenceDao().getCurrentRinging()?.occurrenceId)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun projectedOccurrenceIds(): Set<String> =
+        shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms
+            .mapNotNull { AlarmScheduler.occurrenceId(shadowOf(it.operation).savedIntent) }
+            .toSet()
 
     private fun occurrence(due: Long) = AlarmOccurrenceEntity(
         id = "due",

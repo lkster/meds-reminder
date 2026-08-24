@@ -1,7 +1,6 @@
 package com.example.medsreminder.alarm
 
 import android.app.ActivityOptions
-import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -84,8 +83,10 @@ class AlarmRingingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_START) {
+        val isStartOrRecovery = intent == null || intent.action == ACTION_START
+        if (!isStartOrRecovery) {
             Log.w(TAG, "Ignoring unexpected service action: ${intent?.action}")
+            if (foregroundStarted) return START_STICKY
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -93,7 +94,22 @@ class AlarmRingingService : Service() {
         if (!foregroundStarted) {
             cleanedUp = false
             preserveFallbackNotification = false
-            if (!getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+            val scheduler = AlarmScheduler(this)
+            if (!scheduler.requiredPresentationReady()) {
+                Log.e(TAG, "Actionable alarm notification presentation is unavailable")
+                currentOccurrenceId = null
+                cleanUp(removeNotification = true)
+                serviceScope.launch {
+                    runCatching {
+                        AppDatabase.get(this@AlarmRingingService)
+                            .occurrenceDao()
+                            .expireAllRinging(System.currentTimeMillis())
+                    }.onFailure { Log.e(TAG, "Unable to fail closed ringing queue", it) }
+                    handler.post { stopSelf(startId) }
+                }
+                return START_NOT_STICKY
+            }
+            if (!scheduler.canScheduleExactAlarms()) {
                 handleSystemExemptedFailure(
                     IllegalStateException("Exact alarm access was unavailable when ringing started"),
                 )
@@ -136,11 +152,11 @@ class AlarmRingingService : Service() {
             }
 
             presentSelection(selection, ++refreshGeneration, notificationAlreadyPosted = true)
-            return START_NOT_STICKY
+            return START_STICKY
         }
 
         serviceScope.launch { refreshQueue() }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

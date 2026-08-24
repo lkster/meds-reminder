@@ -2,7 +2,9 @@ package com.example.medsreminder.alarm
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.Service
 import android.content.Context
+import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
@@ -49,7 +51,10 @@ class AlarmRingingServiceLifecycleTest {
         database.clearAllTables()
         shadowOf(context).clearStartedServices()
         context.getSystemService(NotificationManager::class.java)
-            .cancel(AlarmRingingService.NOTIFICATION_ID)
+            .also {
+                shadowOf(it).setNotificationsEnabled(true)
+                it.cancel(AlarmRingingService.NOTIFICATION_ID)
+            }
         context.getSharedPreferences(AlarmPreferences.PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
         ShadowMediaPlayer.resetStaticState()
@@ -103,8 +108,12 @@ class AlarmRingingServiceLifecycleTest {
         val controller = Robolectric.buildService(
             AlarmRingingService::class.java,
             AlarmRingingService.startIntent(context, current),
-        ).create().startCommand(0, 1)
+        ).create()
         val service = controller.get()
+        assertEquals(
+            Service.START_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 1),
+        )
         val notification = shadowOf(service).lastForegroundNotification
 
         assertNotNull(notification)
@@ -127,6 +136,187 @@ class AlarmRingingServiceLifecycleTest {
             )
         }
 
+        controller.destroy()
+    }
+
+    @Test
+    fun nullStickyRestartRehydratesRoomAndIgnoresStaleIntentExtras() {
+        val current = runBlocking(Dispatchers.IO) {
+            insert("authoritative", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().getDetails("authoritative")!!
+        }
+        val staleExtras = details("stale-extra", OccurrenceStatus.RINGING, 2_000L)
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+
+        assertEquals(Service.START_STICKY, service.onStartCommand(null, 0, 1))
+        awaitServiceWork { service.activeOutputOccurrenceId == current.occurrenceId }
+        assertEquals("authoritative", service.activeOutputOccurrenceId)
+
+        assertEquals(
+            Service.START_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, staleExtras), 0, 2),
+        )
+        awaitServiceWork { service.activeOutputOccurrenceId == "authoritative" }
+        assertEquals("authoritative", service.activeOutputOccurrenceId)
+        controller.destroy()
+    }
+
+    @Test
+    fun nullStickyRestartWithoutPersistedQueueStopsCleanly() {
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+
+        assertEquals(Service.START_NOT_STICKY, service.onStartCommand(null, 0, 1))
+        assertTrue(shadowOf(service).isStoppedBySelf)
+        assertFalse(service.ringingResourcesStarted)
+        assertNull(shadowOf(service).lastForegroundNotification)
+        controller.destroy()
+    }
+
+    @Test
+    fun unexpectedLaterCommandCannotStopReplaceOrDowngradeActiveSession() {
+        val current = runBlocking(Dispatchers.IO) {
+            insert("a", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().getDetails("a")!!
+        }
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+        assertEquals(
+            Service.START_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 1),
+        )
+        awaitServiceWork { service.activeOutputOccurrenceId == "a" }
+        val player = service.activeMediaPlayer
+        val wakeLock = service.activeWakeLock
+
+        val result = service.onStartCommand(
+            Intent(context, AlarmRingingService::class.java).setAction("unexpected"),
+            0,
+            2,
+        )
+
+        assertEquals(Service.START_STICKY, result)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertEquals("a", service.activeOutputOccurrenceId)
+        assertSame(player, service.activeMediaPlayer)
+        assertSame(wakeLock, service.activeWakeLock)
+        assertTrue(service.ringingResourcesStarted)
+        controller.destroy()
+    }
+
+    @Test
+    fun exactAccessLossDuringRecoveryKeepsRoomAndPostsNonStickyFallback() {
+        val current = runBlocking(Dispatchers.IO) {
+            insert("a", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().getDetails("a")!!
+        }
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+
+        assertEquals(
+            Service.START_NOT_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 1),
+        )
+        awaitServiceWork {
+            context.getSystemService(NotificationManager::class.java).activeNotifications
+                .any { it.id == AlarmRingingService.NOTIFICATION_ID }
+        }
+
+        assertEquals(OccurrenceStatus.RINGING, runBlocking(Dispatchers.IO) {
+            database.occurrenceDao().get("a")?.status
+        })
+        assertFalse(service.ringingResourcesStarted)
+        assertTrue(shadowOf(service).isStoppedBySelf)
+        controller.destroy()
+    }
+
+    @Test
+    fun unavailableNotificationPresentationFailsClosedWithoutResources() {
+        val current = runBlocking(Dispatchers.IO) {
+            insert("a", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().getDetails("a")!!
+        }
+        shadowOf(context.getSystemService(NotificationManager::class.java))
+            .setNotificationsEnabled(false)
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+
+        assertEquals(
+            Service.START_NOT_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 1),
+        )
+        awaitServiceWork { shadowOf(service).isStoppedBySelf }
+        assertFalse(service.ringingResourcesStarted)
+        assertEquals(OccurrenceStatus.EXPIRED, runBlocking(Dispatchers.IO) {
+            database.occurrenceDao().get("a")?.status
+        })
+        assertEquals(
+            0,
+            context.getSystemService(NotificationManager::class.java).activeNotifications.size,
+        )
+        controller.destroy()
+    }
+
+    @Test
+    fun foregroundPromotionFailureCleansResourcesAndPreservesFallbackState() {
+        val current = runBlocking(Dispatchers.IO) {
+            insert("a", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().getDetails("a")!!
+        }
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+        shadowOf(service).setThrowInStartForeground(IllegalStateException("promotion rejected"))
+
+        assertEquals(
+            Service.START_NOT_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 1),
+        )
+        awaitServiceWork { shadowOf(service).isStoppedBySelf }
+
+        assertEquals(OccurrenceStatus.RINGING, runBlocking(Dispatchers.IO) {
+            database.occurrenceDao().get("a")?.status
+        })
+        assertFalse(service.ringingResourcesStarted)
+        assertNull(service.activeMediaPlayer)
+        assertNull(service.activeAudioFocusRequest)
+        assertNull(service.activeWakeLock)
+        assertEquals(
+            1,
+            context.getSystemService(NotificationManager::class.java).activeNotifications
+                .count { it.id == AlarmRingingService.NOTIFICATION_ID },
+        )
+        controller.destroy()
+    }
+
+    @Test
+    fun overduePresentedOwnerTimesOutAndQueuedFollowerGetsFirstPresentation() {
+        val beforeRecovery = System.currentTimeMillis()
+        val oldPresentedAt = beforeRecovery - 10 * 60 * 1000L - 1L
+        runBlocking(Dispatchers.IO) {
+            insert("a", OccurrenceStatus.RINGING, beforeRecovery - 20 * 60 * 1000L)
+            insert("b", OccurrenceStatus.RINGING, beforeRecovery - 19 * 60 * 1000L)
+            database.occurrenceDao().markPresented("a", oldPresentedAt)
+        }
+        val controller = Robolectric.buildService(AlarmRingingService::class.java).create()
+        val service = controller.get()
+
+        assertEquals(Service.START_STICKY, service.onStartCommand(null, 0, 1))
+        awaitServiceWork {
+            runBlocking(Dispatchers.IO) {
+                database.occurrenceDao().get("a")?.status == OccurrenceStatus.TIMED_OUT &&
+                    database.occurrenceDao().get("b")?.presentedAtEpochMillis != null
+            }
+        }
+
+        val first = runBlocking(Dispatchers.IO) { database.occurrenceDao().get("a")!! }
+        val second = runBlocking(Dispatchers.IO) { database.occurrenceDao().get("b")!! }
+        assertEquals(OccurrenceStatus.TIMED_OUT, first.status)
+        assertEquals(oldPresentedAt, first.presentedAtEpochMillis)
+        assertEquals(OccurrenceStatus.RINGING, second.status)
+        assertTrue(requireNotNull(second.presentedAtEpochMillis) >= beforeRecovery)
+        assertEquals("b", service.activeOutputOccurrenceId)
         controller.destroy()
     }
 
@@ -407,7 +597,10 @@ class AlarmRingingServiceLifecycleTest {
 
         AlarmPreferences.setSoundUri(context, secondUri)
         AlarmPreferences.setVibrationEnabled(context, false)
-        service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 2)
+        assertEquals(
+            Service.START_STICKY,
+            service.onStartCommand(AlarmRingingService.startIntent(context, current), 0, 2),
+        )
         awaitServiceWork {
             notificationManager.activeNotifications
                 .singleOrNull { it.id == AlarmRingingService.NOTIFICATION_ID }
@@ -464,8 +657,10 @@ class AlarmRingingServiceLifecycleTest {
         registerTone(firstUri)
         registerTone(secondUri)
         AlarmPreferences.setSoundUri(context, firstUri)
+        val originalPresentedAt = System.currentTimeMillis() - 2 * 60_000L
         val current = runBlocking(Dispatchers.IO) {
             insert("a", OccurrenceStatus.RINGING, 1_000L)
+            database.occurrenceDao().markPresented("a", originalPresentedAt)
             database.occurrenceDao().getDetails("a")!!
         }
         val firstController = Robolectric.buildService(
@@ -486,6 +681,9 @@ class AlarmRingingServiceLifecycleTest {
 
         assertEquals(secondUri, secondController.get().activePreferenceSnapshot?.selectedSoundUri)
         assertFalse(secondController.get().activePreferenceSnapshot?.vibrationEnabled ?: true)
+        assertEquals(originalPresentedAt, runBlocking(Dispatchers.IO) {
+            database.occurrenceDao().get("a")?.presentedAtEpochMillis
+        })
         secondController.destroy()
     }
 

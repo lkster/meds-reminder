@@ -1,4 +1,4 @@
-# Meds Reminder M4
+# Meds Reminder M5
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -44,12 +44,41 @@ of both tones leaves the notification/full-screen presentation and any enabled v
 Normal delivery accepts an occurrence up to the explicit two-minute `DELIVERY_GRACE_MILLIS` policy.
 This protects an AlarmManager broadcast already in flight during routine reconciliation while still
 rejecting materially late delivery. Reboot/package-update/exact-access recovery does not catch up
-past medication alarms; it expires them and restores the next eligible future occurrences.
+past `SCHEDULED` medication alarms; it expires them and restores the next eligible future
+occurrences. A successfully claimed or expired BASE ensures its next future BASE in the same
+delivery transaction; Taken, Skip, Snooze, and timeout do not advance recurrence.
 
 Weekday-only edits preserve a recently-due BASE occurrence while it remains inside delivery grace
 and its concrete local weekday remains selected. They also preserve already-ringing occurrences and
 pending SNOOZE occurrences. Each enabled schedule otherwise has one canonical future BASE; the
 grace-valid due BASE may temporarily coexist with it.
+
+## M5 ringing recovery
+
+The ringing service uses Room-authoritative `START_STICKY` recovery. A null restart Intent reloads
+the persisted `RINGING` queue; Intent extras never replace Room identity or ordering. The original
+`presented_at_epoch_millis` remains the timeout anchor, so process or service recreation cannot add
+a fresh ten-minute window.
+
+Exact-alarm access controls projection of future `SCHEDULED` occurrences. It is not required for an
+occurrence already authoritatively `RINGING`. If exact access is unavailable during service
+recovery, the service preserves Room state and posts the existing actionable notification fallback
+when notification presentation is available. It cleans partial service resources and stops without
+requesting another sticky restart. If actionable notification presentation itself is unavailable,
+the current ringing queue is expired and cleaned up. Full-screen-intent access is separate from both
+decisions; without FSI, the actionable notification remains the supported presentation fallback.
+
+Reboot, package replacement, and exact-access restoration intentionally differ. Post-unlock reboot
+reconciliation expires all pre-reboot `RINGING` rows. Package replacement and exact-access
+restoration preserve a valid presented owner and its queued followers, apply the normal two-minute
+grace only to unpresented orphan claims, rebuild future AlarmManager projection independently, and
+synchronize a surviving ringing queue.
+
+After a long interruption, an overdue presented owner immediately becomes `TIMED_OUT` against its
+original deadline. An unpresented queued follower is not treated as stale: it keeps the same UUID,
+becomes current in deterministic order, and receives its first presentation timestamp and normal
+window only then. This deliberately favors the existing sequential-session contract; M5 adds no
+timestamp heuristic or stale-queue policy for followers.
 
 ## Persistence
 
@@ -60,13 +89,13 @@ without changing medication IDs, reminder-time IDs, occurrence UUIDs, or occurre
 
 ## Direct Boot limitation
 
-Medication data is stored in credential-protected Room storage. M3 deliberately does not duplicate
+Medication data is stored in credential-protected Room storage. M5 consciously continues not to duplicate
 medication names or schedules into device-protected storage. `LOCKED_BOOT_COMPLETED` therefore does
 not access Room or restore medication alarms. `BOOT_COMPLETED` reconciles after the first unlock.
 
-This remains a known reliability limitation relative to the M0 technical spike, not the
-intended final production behavior: a medication alarm due after reboot but before first unlock is
-not delivered. A later reliability milestone must address this explicitly.
+This is an explicitly accepted M5 limitation: a medication alarm due after reboot but before first
+unlock is not delivered. Direct Boot is deferred beyond M5 because mirroring medication, preference,
+Snooze, and action state would introduce a second consistency domain beside authoritative Room.
 
 ## Samsung One UI finding
 
@@ -95,9 +124,16 @@ Targeted emulator validation should cover CRUD, weekday edits, preference persis
 grace-valid delivery, edit/disable/delete cancellation, reboot reconciliation, configurable Snooze,
 queue advancement, resource cleanup, and factual history rendering.
 
-Deferred Samsung Galaxy S23 validation remains:
+The following Samsung Galaxy S23 checks are deferred to final physical-device / user-acceptance
+validation and have not yet been physically executed; they are not individual M5 completion gates:
 
 - custom ringtone playback;
 - vibration OFF;
 - FSI/lockscreen regression;
 - selected ringtone persistence after reboot.
+
+See [`docs/M5_RELIABILITY_VALIDATION.md`](docs/M5_RELIABILITY_VALIDATION.md) for the exact Samsung
+procedures, deferred-result placeholders, and the passing non-force-stop emulator process-death
+validation. During active incremental development, automated validation is preferred; perform an
+isolated physical-device check earlier only when required to resolve a concrete implementation
+decision.
