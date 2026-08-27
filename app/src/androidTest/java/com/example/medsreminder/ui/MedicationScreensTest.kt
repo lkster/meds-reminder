@@ -5,9 +5,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -150,6 +154,128 @@ class MedicationScreensTest {
 
         compose.onNodeWithText("Select at least one day").assertExists()
         compose.onNodeWithText("Save").assertIsNotEnabled()
+    }
+
+    @Test
+    fun whitespaceNameAndDuplicateTimesAreVisibleAndBlockSave() {
+        val draft = draftWith(
+            EditorTime(id = 11L, minuteOfDay = 8 * 60),
+            EditorTime(id = 12L, minuteOfDay = 8 * 60),
+        ).copy(name = "   ")
+
+        compose.setContent {
+            MaterialTheme { MedicationEditorScreen(draft, {}, {}, {}) }
+        }
+
+        compose.onNodeWithText("Enter a medication name").assertExists()
+        compose.onAllNodesWithText("Each reminder needs a different time").assertCountEquals(2)
+        compose.onNodeWithText("Save").assertIsNotEnabled()
+    }
+
+    @Test
+    fun distinctMultiReminderScheduleIsSaveable() {
+        val draft = draftWith(
+            EditorTime(id = 11L, minuteOfDay = 8 * 60),
+            EditorTime(id = 12L, minuteOfDay = 20 * 60),
+        )
+
+        compose.setContent {
+            MaterialTheme { MedicationEditorScreen(draft, {}, {}, {}) }
+        }
+
+        compose.onNodeWithText("Save").assertIsEnabled()
+    }
+
+    @Test
+    fun busyEditorLocksMutationAndCannotResubmit() {
+        var changes = 0
+        var saves = 0
+        val draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60))
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draft = draft,
+                    onDraftChange = { changes++ },
+                    onSave = { saves++ },
+                    onCancel = {},
+                    saveState = EditorSaveState.SavingRoom,
+                )
+            }
+        }
+
+        compose.onNodeWithText("Saving…").assertIsNotEnabled()
+        compose.onAllNodesWithText("Mon")[0].assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(0, changes)
+            assertEquals(0, saves)
+        }
+    }
+
+    @Test
+    fun switchesKeepToggleStateAndExposeContextualLabels() {
+        val item = persistedMedication(WeekdayMask.ALL)
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(item),
+                    capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default",
+                    vibrationEnabled = false,
+                    snoozeMinutes = 5,
+                    showSamsungGuidance = false,
+                    onSamsungSettings = {},
+                    onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {},
+                    onHistory = {},
+                    onAdd = {},
+                    onEdit = {},
+                    onToggle = { _, _ -> },
+                    onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn()
+        compose.onNodeWithContentDescription("Vibration").assertIsOff()
+    }
+
+    @Test
+    fun editorEnabledSwitchHasMedicationContextAndToggleState() {
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)),
+                    {},
+                    {},
+                    {},
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn()
+    }
+
+    @Test
+    fun idleCancelInvokesEditorExitButBusyCancelIsDisabled() {
+        var cancels = 0
+        var busy by mutableStateOf(false)
+        val draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60))
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draft = draft,
+                    onDraftChange = {},
+                    onSave = {},
+                    onCancel = { cancels++ },
+                    saveState = if (busy) EditorSaveState.SavingRoom else EditorSaveState.Idle,
+                )
+            }
+        }
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { assertEquals(1, cancels) }
+        compose.runOnIdle { busy = true }
+        compose.onNodeWithText("Cancel").assertIsNotEnabled()
     }
 
     @Test

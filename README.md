@@ -1,4 +1,4 @@
-# Meds Reminder M5
+# Meds Reminder M6
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -9,6 +9,20 @@ M3 adds global alarm behavior preferences. The app can use the current system-de
 an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
+
+## M6 medication editor lifecycle
+
+The medication editor draft and its active Save are retained across normal, same-process Activity
+configuration recreation. This includes reminder identities, times, weekday selections and the
+active save phase. Unsaved drafts and in-memory editor Saves are deliberately not restored after
+process death; Room remains authoritative, so a transaction that committed before process death is
+visible from Room and an uncommitted edit is discarded.
+
+Editor Save explicitly separates the Room transaction from alarm completion. Once Room returns a
+`MedicationScheduleEditResult`, the medication is saved even if cancellation/reconciliation/ringing
+synchronization still needs retrying. That retry uses the retained result and never repeats a new
+medication insert. Room remains schema version 2. The existing Samsung physical-validation backlog
+remains deferred.
 
 ## Factual medication history
 

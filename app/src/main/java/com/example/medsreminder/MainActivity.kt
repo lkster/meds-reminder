@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,6 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.room.withTransaction
 import com.example.medsreminder.alarm.AlarmRingingService
@@ -38,14 +41,14 @@ import com.example.medsreminder.data.HistoryOccurrence
 import com.example.medsreminder.data.MedicationScheduleEdit
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.ReminderScheduleEdit
-import com.example.medsreminder.data.WeekdayMask
 import com.example.medsreminder.data.applyMedicationScheduleEdit
 import com.example.medsreminder.ui.CapabilityItem
-import com.example.medsreminder.ui.EditorDraft
 import com.example.medsreminder.ui.HistoryItem
 import com.example.medsreminder.ui.HistoryScreen
+import com.example.medsreminder.ui.MedicationEditorViewModel
 import com.example.medsreminder.ui.MedicationEditorScreen
 import com.example.medsreminder.ui.MedicationListScreen
+import com.example.medsreminder.ui.MedicationEditorViewModelTestHook
 import com.example.medsreminder.ui.toHistoryItem
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +63,7 @@ class MainActivity : ComponentActivity() {
 
     private var medications by mutableStateOf<List<MedicationWithTimes>>(emptyList())
     private var history by mutableStateOf<List<HistoryItem>>(emptyList())
-    private var editor by mutableStateOf<EditorDraft?>(null)
+    private lateinit var editorOwner: MedicationEditorViewModel
     private var capabilities by mutableStateOf(CapabilityState())
     private var alarmPreferences by mutableStateOf(
         AlarmPreferenceSnapshot(
@@ -73,6 +76,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        editorOwner = MedicationEditorViewModelTestHook.factory?.let { testFactory ->
+            ViewModelProvider(this, object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    check(modelClass == MedicationEditorViewModel::class.java)
+                    return testFactory(application) as T
+                }
+            })[MedicationEditorViewModel::class.java]
+        } ?: ViewModelProvider(this)[MedicationEditorViewModel::class.java]
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (editorOwner.draft != null) {
+                    // cancelIdleEditor intentionally consumes Back while an operation is active.
+                    editorOwner.cancelIdleEditor()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
         AlarmRingingService.ensureNotificationChannel(this)
         refreshCapabilities()
         refreshAlarmPreferences()
@@ -125,13 +149,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        val currentEditor = editor
+        val currentEditor = editorOwner.draft
         if (currentEditor != null) {
             MedicationEditorScreen(
                 draft = currentEditor,
-                onDraftChange = { editor = it },
-                onSave = { saveMedication(it) },
-                onCancel = { editor = null },
+                onDraftChange = editorOwner::updateDraft,
+                onSave = { editorOwner.submit() },
+                onCancel = editorOwner::cancelIdleEditor,
+                saveState = editorOwner.saveState,
+                onRetryPostCommit = editorOwner::retryPostCommitCompletion,
+                handleSystemBack = false,
             )
             return
         }
@@ -208,49 +235,23 @@ class MainActivity : ComponentActivity() {
                 refreshAlarmPreferences()
             },
             onHistory = { historyVisible = true },
-            onAdd = { editor = EditorDraft.new() },
-            onEdit = { editor = EditorDraft.from(it) },
-            onToggle = { item, enabled -> saveMedication(EditorDraft.from(item).copy(enabled = enabled)) },
+            onAdd = editorOwner::openNew,
+            onEdit = editorOwner::openExisting,
+            onToggle = ::saveMedicationListToggle,
             onDelete = ::deleteMedication,
         )
     }
 
-    private fun saveMedication(draft: EditorDraft) {
-        val name = draft.name.trim()
-        val minutes = draft.times.map { it.minuteOfDay }
-        if (name.isBlank() || minutes.isEmpty() || minutes.distinct().size != minutes.size ||
-            draft.times.any { !WeekdayMask.isValid(it.weekdayMask) }
-        ) {
-            Toast.makeText(
-                this,
-                "Enter a name, at least one unique time, and weekdays for every reminder",
-                Toast.LENGTH_LONG,
-            ).show()
-            return
-        }
+    /** List enable/disable deliberately remains an independent Activity operation. */
+    private fun saveMedicationListToggle(item: MedicationWithTimes, enabled: Boolean) {
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching {
-                val nowMillis = System.currentTimeMillis()
-                val result = database.applyMedicationScheduleEdit(
-                    edit = MedicationScheduleEdit(
-                        medicationId = draft.id,
-                        name = name,
-                        instructions = draft.instructions.trim().ifBlank { null },
-                        enabled = draft.enabled,
-                        reminders = draft.times.map {
-                            ReminderScheduleEdit(it.id, it.minuteOfDay, it.weekdayMask)
-                        },
-                    ),
-                    nowMillis = nowMillis,
-                    zoneId = ZoneId.systemDefault(),
-                )
+                val result = applyMedicationListToggle(database, item, enabled, System.currentTimeMillis())
                 result.obsoleteOccurrenceIds.forEach(scheduler::cancelOccurrence)
                 reconciler.reconcile(ReconciliationMode.ROUTINE)
                 if (result.refreshRinging) {
                     AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
                 }
-            }.onSuccess {
-                withContext(Dispatchers.Main) { editor = null }
             }.onFailure { error ->
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MainActivity, "Could not save: ${error.message}", Toast.LENGTH_LONG).show()
@@ -357,6 +358,26 @@ class MainActivity : ComponentActivity() {
         val fullScreenAllowed: Boolean = false,
     )
 }
+
+/** The narrow Room edit used exclusively by the medication-list Enabled switch. */
+internal suspend fun applyMedicationListToggle(
+    database: AppDatabase,
+    item: MedicationWithTimes,
+    enabled: Boolean,
+    nowMillis: Long,
+): com.example.medsreminder.data.MedicationScheduleEditResult = database.applyMedicationScheduleEdit(
+    edit = MedicationScheduleEdit(
+        medicationId = item.medication.id,
+        name = item.medication.name.trim(),
+        instructions = item.medication.instructions?.trim()?.ifBlank { null },
+        enabled = enabled,
+        reminders = item.reminderTimes.map {
+            ReminderScheduleEdit(it.id, it.minuteOfDay, it.weekdayMask)
+        },
+    ),
+    nowMillis = nowMillis,
+    zoneId = ZoneId.systemDefault(),
+)
 
 internal suspend fun synchronizeRingingOnResume(
     context: Context,

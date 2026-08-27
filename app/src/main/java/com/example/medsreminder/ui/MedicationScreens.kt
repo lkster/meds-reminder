@@ -1,6 +1,7 @@
 package com.example.medsreminder.ui
 
 import android.app.TimePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
@@ -61,6 +64,30 @@ data class EditorDraft(
         )
     }
 }
+
+/** Mirrors the existing persistence preconditions without adding medication-domain rules. */
+data class EditorValidation(
+    val blankName: Boolean,
+    val noReminders: Boolean,
+    val duplicateMinutes: Set<Int>,
+    val invalidWeekdayRows: Set<Int>,
+) {
+    val isValid: Boolean
+        get() = !blankName && !noReminders && duplicateMinutes.isEmpty() && invalidWeekdayRows.isEmpty()
+}
+
+val EditorDraft.editorValidation: EditorValidation
+    get() = EditorValidation(
+        blankName = name.trim().isBlank(),
+        noReminders = times.isEmpty(),
+        duplicateMinutes = times.groupingBy { it.minuteOfDay }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys,
+        invalidWeekdayRows = times.mapIndexedNotNull { index, time ->
+            index.takeIf { !WeekdayMask.isValid(time.weekdayMask) }
+        }.toSet(),
+    )
 
 data class CapabilityItem(
     val title: String,
@@ -117,7 +144,9 @@ fun MedicationListScreen(
                     Switch(
                         checked = vibrationEnabled,
                         onCheckedChange = onVibrationEnabledChange,
-                        modifier = Modifier.testTag("alarm-vibration-toggle"),
+                        modifier = Modifier
+                            .testTag("alarm-vibration-toggle")
+                            .semantics { contentDescription = "Vibration" },
                     )
                 }
                 Text("Snooze duration", style = MaterialTheme.typography.titleMedium)
@@ -145,6 +174,9 @@ fun MedicationListScreen(
                         Switch(
                             checked = item.medication.enabled,
                             onCheckedChange = { onToggle(item, it) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Enable ${item.medication.name} reminders"
+                            },
                         )
                     }
                     item.medication.instructions?.let { Text(it) }
@@ -207,8 +239,15 @@ fun MedicationEditorScreen(
     onDraftChange: (EditorDraft) -> Unit,
     onSave: (EditorDraft) -> Unit,
     onCancel: () -> Unit,
+    saveState: EditorSaveState = EditorSaveState.Idle,
+    onRetryPostCommit: () -> Unit = {},
+    handleSystemBack: Boolean = true,
 ) {
     val context = LocalContext.current
+    val validation = draft.editorValidation
+    val mutationLocked = saveState.locksDraft
+    // Consume Back while work is owned by the retained ViewModel so it cannot be abandoned.
+    if (handleSystemBack) BackHandler { if (!mutationLocked) onCancel() }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -222,17 +261,32 @@ fun MedicationEditorScreen(
             onValueChange = { onDraftChange(draft.copy(name = it)) },
             label = { Text("Medication name") },
             singleLine = true,
+            isError = validation.blankName,
+            supportingText = if (validation.blankName) {
+                { Text("Enter a medication name", color = MaterialTheme.colorScheme.error) }
+            } else {
+                null
+            },
+            enabled = !mutationLocked,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.instructions,
             onValueChange = { onDraftChange(draft.copy(instructions = it)) },
             label = { Text("Dose or instructions (optional)") },
+            enabled = !mutationLocked,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Enabled", style = MaterialTheme.typography.titleMedium)
-            Switch(draft.enabled, { onDraftChange(draft.copy(enabled = it)) })
+            Switch(
+                checked = draft.enabled,
+                onCheckedChange = { onDraftChange(draft.copy(enabled = it)) },
+                enabled = !mutationLocked,
+                modifier = Modifier.semantics {
+                    contentDescription = "Enable ${draft.name.ifBlank { "this medication" }} reminders"
+                },
+            )
         }
         Text("Reminder schedules", style = MaterialTheme.typography.titleMedium)
         if (draft.id != null) {
@@ -248,7 +302,7 @@ fun MedicationEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(onClick = {
+                        OutlinedButton(enabled = !mutationLocked, onClick = {
                             TimePickerDialog(
                                 context,
                                 { _, hour, minute ->
@@ -262,19 +316,26 @@ fun MedicationEditorScreen(
                             ).show()
                         }) { Text(formatMinute(time.minuteOfDay)) }
                         if (draft.times.size > 1) {
-                            TextButton(onClick = {
+                            TextButton(enabled = !mutationLocked, onClick = {
                                 onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
                             }) { Text("Remove") }
                         }
                     }
-                    WeekdaySelector(time.weekdayMask) { weekdayMask ->
+                    WeekdaySelector(time.weekdayMask, enabled = !mutationLocked) { weekdayMask ->
                         val changed = draft.times.toMutableList()
                         changed[index] = time.copy(weekdayMask = weekdayMask)
                         onDraftChange(draft.copy(times = changed))
                     }
-                    if (time.weekdayMask == 0) {
+                    if (!WeekdayMask.isValid(time.weekdayMask)) {
                         Text(
                             "Select at least one day",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (time.minuteOfDay in validation.duplicateMinutes) {
+                        Text(
+                            "Each reminder needs a different time",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -282,7 +343,14 @@ fun MedicationEditorScreen(
                 }
             }
         }
-        OutlinedButton(onClick = {
+        if (validation.noReminders) {
+            Text(
+                "Add at least one reminder time",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        OutlinedButton(enabled = !mutationLocked, onClick = {
             val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
             onDraftChange(
                 draft.copy(times = draft.times + EditorTime(null, nextMinute, WeekdayMask.ALL)),
@@ -290,10 +358,32 @@ fun MedicationEditorScreen(
         }) { Text("Add another time") }
         Button(
             onClick = { onSave(draft) },
-            enabled = draft.times.all { WeekdayMask.isValid(it.weekdayMask) },
+            enabled = validation.isValid && saveState.canStartSubmission,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Save") }
-        OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+        ) { Text(if (saveState is EditorSaveState.SavingRoom) "Saving…" else "Save") }
+        when (saveState) {
+            is EditorSaveState.SavingRoom -> Text("Saving medication…")
+            is EditorSaveState.CompletingAlarms -> Text("Saved. Updating alarms…")
+            is EditorSaveState.RoomFailure -> Text(
+                "Could not save: ${saveState.message}",
+                color = MaterialTheme.colorScheme.error,
+            )
+            is EditorSaveState.PostCommitFailure -> {
+                Text(
+                    "Medication was saved, but alarm updates need retry: ${saveState.message}",
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = onRetryPostCommit, modifier = Modifier.fillMaxWidth()) {
+                    Text("Retry alarm update")
+                }
+            }
+            EditorSaveState.Idle -> Unit
+        }
+        OutlinedButton(
+            onClick = onCancel,
+            enabled = !mutationLocked,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Cancel") }
     }
 }
 
@@ -303,10 +393,11 @@ private fun formatMinute(minuteOfDay: Int): String =
     TIME_FORMATTER.format(LocalTime.of(minuteOfDay / 60, minuteOfDay % 60))
 
 @Composable
-private fun WeekdaySelector(weekdayMask: Int, onChange: (Int) -> Unit) {
+private fun WeekdaySelector(weekdayMask: Int, enabled: Boolean, onChange: (Int) -> Unit) {
     FilterChip(
         selected = weekdayMask == WeekdayMask.ALL,
         onClick = { onChange(WeekdayMask.ALL) },
+        enabled = enabled,
         label = { Text("Every day") },
     )
     DAY_ROWS.forEach { days ->
@@ -316,6 +407,7 @@ private fun WeekdaySelector(weekdayMask: Int, onChange: (Int) -> Unit) {
                 FilterChip(
                     selected = weekdayMask and bit != 0,
                     onClick = { onChange(weekdayMask xor bit) },
+                    enabled = enabled,
                     label = { Text(dayLabel(day)) },
                 )
             }
