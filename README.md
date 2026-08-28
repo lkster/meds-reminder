@@ -10,7 +10,18 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M6 medication editor lifecycle
+## M7 alarm readiness and M6 editor lifecycle
+
+The medication list now shows alarm readiness immediately below the header, before Add medication,
+alarm behavior, or medication cards. Notifications, the Medication alarms channel, exact-alarm
+access, and full-screen alarm access remain distinct. Android 13+ notification permission and
+app-level notification enablement are separately checked behind the single Notifications item.
+
+Notifications, high channel importance, and exact-alarm access are required for the application's
+reliable-delivery path. Missing full-screen access only limits lock-screen presentation: actionable
+alarm notifications remain available. Medication CRUD and History remain usable while setup is
+incomplete; there is no mandatory onboarding or setup wizard. Readiness refreshes when the Activity
+resumes after Android settings.
 
 The medication editor draft and its active Save are retained across normal, same-process Activity
 configuration recreation. This includes reminder identities, times, weekday selections and the

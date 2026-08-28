@@ -13,17 +13,22 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.medsreminder.data.MedicationEntity
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.ReminderTimeEntity
 import com.example.medsreminder.data.WeekdayMask
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +37,113 @@ import org.junit.runner.RunWith
 class MedicationScreensTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun alarmReadinessShowsRequiredIssuesBeforeCrudAndKeepsActionsAvailable() {
+        var addClicks = 0
+        var historyClicks = 0
+        var notificationClicks = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(),
+                    capabilityItems = listOf(CapabilityItem("Notifications", false, "Notification permission is required so medication alarms can show their actionable notification.", "Allow notifications", { notificationClicks++ })),
+                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
+                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = { historyClicks++ },
+                    onAdd = { addClicks++ }, onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Alarm setup needs attention").assertExists()
+        val readinessTop = compose.onNodeWithText("Alarm setup needs attention")
+            .getUnclippedBoundsInRoot().top
+        val addMedicationTop = compose.onNodeWithText("Add medication")
+            .getUnclippedBoundsInRoot().top
+        assertTrue(readinessTop < addMedicationTop)
+        compose.onNodeWithText("Allow notifications").performClick()
+        compose.onNodeWithText("Add medication").assertIsEnabled().performClick()
+        compose.onNodeWithText("History").assertIsEnabled().performClick()
+        assertEquals(1, notificationClicks)
+        assertEquals(1, addClicks)
+        assertEquals(1, historyClicks)
+    }
+
+    @Test
+    fun allReadyReadinessCollapsesDetailedCards() {
+        val ready = listOf(
+            CapabilityItem("Notifications", true, "", "", {}),
+            CapabilityItem("Alarm channel", true, "", "", {}),
+            CapabilityItem("Exact alarms", true, "", "", {}),
+            CapabilityItem("Full-screen alarm", true, "", "", {}, requiredForReliableDelivery = false),
+        )
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(), capabilityItems = ready, alarmSoundLabel = "System default",
+                    vibrationEnabled = true, snoozeMinutes = 5, showSamsungGuidance = false,
+                    onSamsungSettings = {}, onChooseAlarmSound = {}, onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {}, onEdit = {},
+                    onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Alarm setup — Ready").assertExists()
+        compose.onNodeWithText("Notifications").assertDoesNotExist()
+    }
+
+    @Test
+    fun fsiOnlyReadinessIsLimitedAndKeepsNotificationFallbackVisible() {
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(),
+                    capabilityItems = listOf(
+                        CapabilityItem("Notifications", true, "", "", {}),
+                        CapabilityItem("Alarm channel", true, "", "", {}),
+                        CapabilityItem("Exact alarms", true, "", "", {}),
+                        CapabilityItem(
+                            "Full-screen alarm", false,
+                            "Reminders can still use the actionable alarm notification, but the full-screen alarm may not appear over the lock screen.",
+                            "Open full-screen access", {}, requiredForReliableDelivery = false,
+                        ),
+                    ),
+                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
+                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Alarm setup is limited").assertExists()
+        compose.onNodeWithText("Alarm setup needs attention").assertDoesNotExist()
+        compose.onNodeWithText("Actionable alarm notifications remain available, but full-screen presentation is limited.").assertExists()
+        compose.onNodeWithText("Full-screen alarm").assertExists()
+        compose.onNodeWithText("Open full-screen access").assertExists()
+    }
+
+    @Test
+    fun readinessHeadingStatusAndActionExposeNormalSemantics() {
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(),
+                    capabilityItems = listOf(CapabilityItem("Notifications", false, "Notification permission is required so medication alarms can show their actionable notification.", "Allow notifications", {})),
+                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
+                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)).assertExists()
+        compose.onNodeWithText("Alarm setup needs attention").assertExists()
+        compose.onNodeWithText("Required").assertExists()
+        compose.onNodeWithText("Allow notifications").assertHasClickAction()
+    }
 
     @Test
     fun existingEveryDayScheduleRendersAsEveryDay() {

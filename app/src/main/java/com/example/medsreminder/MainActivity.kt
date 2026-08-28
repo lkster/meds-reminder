@@ -168,37 +168,35 @@ class MainActivity : ComponentActivity() {
         }
 
         val capabilityItems = listOf(
-            CapabilityItem(
-                "Notifications",
-                capabilities.notificationsAllowed,
-                "Required for the actionable alarm notification.",
-                "Allow",
-            ) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                else openAppNotificationSettings()
-            },
+            buildNotificationCapabilityItem(
+                runtimePermissionReady = capabilities.runtimeNotificationPermissionGranted,
+                appNotificationsEnabled = capabilities.appNotificationsEnabled,
+                onRequestRuntimePermission = {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                },
+                onOpenNotificationSettings = ::openAppNotificationSettings,
+            ),
             CapabilityItem(
                 "Alarm channel",
                 capabilities.channelHighImportance,
-                "Must remain high importance for heads-up presentation.",
+                "The Medication alarms channel must remain at the high importance required for actionable heads-up alarm presentation.",
                 "Open channel settings",
                 ::openAlarmChannelSettings,
             ),
             CapabilityItem(
                 "Exact alarms",
                 capabilities.exactAlarmsAllowed,
-                "Required for precise daily delivery.",
+                "Exact alarm access is required to register reminders for their configured time. Saved medication schedules remain stored and can be reconciled when access returns.",
                 "Open alarm access",
                 ::openExactAlarmSettings,
             ),
             CapabilityItem(
                 "Full-screen alarm",
                 capabilities.fullScreenAllowed,
-                "Without access, delivery degrades to the alarm notification.",
+                "Reminders can still use the actionable alarm notification, but the full-screen alarm may not appear over the lock screen.",
                 "Open full-screen access",
                 ::openFullScreenIntentSettings,
+                requiredForReliableDelivery = false,
             ),
         )
         MedicationListScreen(
@@ -288,9 +286,9 @@ class MainActivity : ComponentActivity() {
         val notificationManager = getSystemService(NotificationManager::class.java)
         val channel = notificationManager.getNotificationChannel(AlarmRingingService.CHANNEL_ID)
         capabilities = CapabilityState(
-            notificationsAllowed = notificationManager.areNotificationsEnabled() &&
-                (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED),
+            runtimeNotificationPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            appNotificationsEnabled = notificationManager.areNotificationsEnabled(),
             channelHighImportance = channel?.importance?.let { it >= NotificationManager.IMPORTANCE_HIGH } == true,
             exactAlarmsAllowed = getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
             fullScreenAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
@@ -352,10 +350,40 @@ class MainActivity : ComponentActivity() {
     )
 
     private data class CapabilityState(
-        val notificationsAllowed: Boolean = false,
+        val runtimeNotificationPermissionGranted: Boolean = false,
+        val appNotificationsEnabled: Boolean = false,
         val channelHighImportance: Boolean = false,
         val exactAlarmsAllowed: Boolean = false,
         val fullScreenAllowed: Boolean = false,
+    )
+}
+
+internal fun buildNotificationCapabilityItem(
+    runtimePermissionReady: Boolean,
+    appNotificationsEnabled: Boolean,
+    onRequestRuntimePermission: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+): CapabilityItem = when {
+    !runtimePermissionReady -> CapabilityItem(
+        title = "Notifications",
+        ready = false,
+        detail = "Notification permission is required so medication alarms can show their actionable notification.",
+        actionLabel = "Allow notifications",
+        onAction = onRequestRuntimePermission,
+    )
+    !appNotificationsEnabled -> CapabilityItem(
+        title = "Notifications",
+        ready = false,
+        detail = "Notifications are disabled for Meds Reminder in Android settings, so medication alarms cannot show their actionable notification.",
+        actionLabel = "Open notification settings",
+        onAction = onOpenNotificationSettings,
+    )
+    else -> CapabilityItem(
+        title = "Notifications",
+        ready = true,
+        detail = "Notifications are ready for the actionable alarm notification.",
+        actionLabel = "",
+        onAction = {},
     )
 }
 

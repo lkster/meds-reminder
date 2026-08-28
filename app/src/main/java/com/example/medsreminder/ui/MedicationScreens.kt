@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
@@ -95,6 +96,7 @@ data class CapabilityItem(
     val detail: String,
     val actionLabel: String,
     val onAction: () -> Unit,
+    val requiredForReliableDelivery: Boolean = true,
 )
 
 @Composable
@@ -128,6 +130,7 @@ fun MedicationListScreen(
             Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
             OutlinedButton(onClick = onHistory) { Text("History") }
         }
+        AlarmReadinessSection(capabilityItems)
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -191,26 +194,11 @@ fun MedicationListScreen(
             }
         }
 
-        Text("Alarm capabilities", style = MaterialTheme.typography.titleLarge)
-        capabilityItems.forEach { capability ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(capability.title, style = MaterialTheme.typography.titleMedium)
-                        Text(if (capability.ready) "Ready" else "Action needed")
-                    }
-                    Text(capability.detail, style = MaterialTheme.typography.bodySmall)
-                    if (!capability.ready) {
-                        OutlinedButton(onClick = capability.onAction) { Text(capability.actionLabel) }
-                    }
-                }
-            }
-        }
         if (showSamsungGuidance) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Samsung unlocked alarm actions", style = MaterialTheme.typography.titleMedium)
-                    Text("For immediate actions, set this app's pop-up notification style to Detailed.")
+                    Text("Samsung Brief pop-ups may hide immediate Taken, Snooze, and Skip actions. Detailed is a user-controlled Samsung setting that Meds Reminder cannot change.")
                     OutlinedButton(onClick = onSamsungSettings) { Text("Open notification settings") }
                 }
             }
@@ -230,6 +218,46 @@ fun MedicationListScreen(
             },
             dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun AlarmReadinessSection(capabilityItems: List<CapabilityItem>) {
+    val unresolvedRequired = capabilityItems.filter { !it.ready && it.requiredForReliableDelivery }
+    val unresolvedDegraded = capabilityItems.filter { !it.ready && !it.requiredForReliableDelivery }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when {
+                unresolvedRequired.isNotEmpty() -> {
+                    Text("Alarm setup needs attention", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    Text("Required Android setup is incomplete, so medication alarms should not yet be relied upon.")
+                    (unresolvedRequired + unresolvedDegraded).forEach { CapabilityCard(it) }
+                }
+                unresolvedDegraded.isNotEmpty() -> {
+                    Text("Alarm setup is limited", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    Text("Actionable alarm notifications remain available, but full-screen presentation is limited.")
+                    unresolvedDegraded.forEach { CapabilityCard(it) }
+                }
+                else -> {
+                    Text("Alarm setup — Ready", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    Text("Android permissions and core alarm capabilities are ready.")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityCard(capability: CapabilityItem) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(capability.title, style = MaterialTheme.typography.titleMedium)
+                Text(if (capability.requiredForReliableDelivery) "Required" else "Limited")
+            }
+            Text(capability.detail, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = capability.onAction) { Text(capability.actionLabel) }
+        }
     }
 }
 
