@@ -353,6 +353,43 @@ class MedicationScreensTest {
     }
 
     @Test
+    fun medicationEnabledSwitchInvokesTheListToggleCallback() {
+        val item = persistedMedication(WeekdayMask.ALL)
+        var toggled: Pair<MedicationWithTimes, Boolean>? = null
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(item),
+                    capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default",
+                    vibrationEnabled = true,
+                    snoozeMinutes = 5,
+                    showSamsungGuidance = false,
+                    onSamsungSettings = {},
+                    onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {},
+                    onHistory = {},
+                    onAdd = {},
+                    onEdit = {},
+                    onToggle = { medication, enabled -> toggled = medication to enabled },
+                    onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription(
+            "Enable Medicine reminders",
+            useUnmergedTree = true,
+        ).assertHasClickAction().assertIsOn().performClick()
+
+        compose.runOnIdle {
+            assertEquals(item.medication.id, toggled?.first?.medication?.id)
+            assertEquals(false, toggled?.second)
+        }
+    }
+
+    @Test
     fun editorEnabledSwitchHasMedicationContextAndToggleState() {
         compose.setContent {
             MaterialTheme {

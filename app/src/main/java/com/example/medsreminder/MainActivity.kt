@@ -12,7 +12,9 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,10 +40,8 @@ import com.example.medsreminder.alarm.AlarmScheduler
 import com.example.medsreminder.alarm.ReconciliationMode
 import com.example.medsreminder.data.AppDatabase
 import com.example.medsreminder.data.HistoryOccurrence
-import com.example.medsreminder.data.MedicationScheduleEdit
 import com.example.medsreminder.data.MedicationWithTimes
-import com.example.medsreminder.data.ReminderScheduleEdit
-import com.example.medsreminder.data.applyMedicationScheduleEdit
+import com.example.medsreminder.data.applyMedicationListToggle
 import com.example.medsreminder.ui.CapabilityItem
 import com.example.medsreminder.ui.HistoryItem
 import com.example.medsreminder.ui.HistoryScreen
@@ -51,15 +51,20 @@ import com.example.medsreminder.ui.MedicationListScreen
 import com.example.medsreminder.ui.MedicationEditorViewModelTestHook
 import com.example.medsreminder.ui.toHistoryItem
 import java.time.ZoneId
+import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { AppDatabase.get(this) }
-    private val scheduler by lazy { AlarmScheduler(this) }
-    private val reconciler by lazy { AlarmReconciler(this, database, scheduler) }
+    private val scheduler by lazy { AlarmScheduler(applicationContext) }
+    private val reconciler by lazy { AlarmReconciler(applicationContext, database, scheduler) }
 
     private var medications by mutableStateOf<List<MedicationWithTimes>>(emptyList())
     private var history by mutableStateOf<List<HistoryItem>>(emptyList())
@@ -242,19 +247,73 @@ class MainActivity : ComponentActivity() {
 
     /** List enable/disable deliberately remains an independent Activity operation. */
     private fun saveMedicationListToggle(item: MedicationWithTimes, enabled: Boolean) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            runCatching {
-                val result = applyMedicationListToggle(database, item, enabled, System.currentTimeMillis())
-                result.obsoleteOccurrenceIds.forEach(scheduler::cancelOccurrence)
-                reconciler.reconcile(ReconciliationMode.ROUTINE)
-                if (result.refreshRinging) {
-                    AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
-                }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Could not save: ${error.message}", Toast.LENGTH_LONG).show()
+        val medicationId = item.medication.id
+        lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val outcome = withContext(NonCancellable) {
+                withContext(Dispatchers.IO) {
+                    completeMedicationListToggle(medicationId, enabled)
                 }
             }
+            deliverMedicationListToggleFeedback(outcome, isActive)
+        }
+    }
+
+    private suspend fun completeMedicationListToggle(
+        medicationId: Long,
+        enabled: Boolean,
+    ): MedicationListToggleOutcome {
+        val result = try {
+            MedicationListToggleTestHook.beforeRoom(applicationContext)
+            MedicationListToggleTestHook.incrementPhaseA(applicationContext)
+            database.applyMedicationListToggle(
+                medicationId = medicationId,
+                enabled = enabled,
+                nowMillis = System.currentTimeMillis(),
+                zoneId = ZoneId.systemDefault(),
+            )
+        } catch (error: Throwable) {
+            Log.e(TAG, "Medication-list toggle failed before Room persistence", error)
+            return MedicationListToggleOutcome.PersistenceFailure(error)
+        }
+        if (result == null) return MedicationListToggleOutcome.Stale
+
+        return try {
+            MedicationListToggleTestHook.afterRoomBeforePhaseB(applicationContext)
+            MedicationListToggleTestHook.incrementPhaseB(applicationContext)
+            result.obsoleteOccurrenceIds.forEach(scheduler::cancelOccurrence)
+            reconciler.reconcile(ReconciliationMode.ROUTINE)
+            if (result.refreshRinging) {
+                AlarmRingingService.synchronizeWithPersistedQueue(applicationContext, database)
+            }
+            MedicationListToggleOutcome.Success
+        } catch (error: Throwable) {
+            Log.e(TAG, "Medication-list toggle persisted, but alarm completion failed", error)
+            MedicationListToggleOutcome.AlarmCompletionFailure(error)
+        }
+    }
+
+    private fun deliverMedicationListToggleFeedback(
+        outcome: MedicationListToggleOutcome,
+        lifecycleCoroutineActive: Boolean,
+    ) {
+        val canDeliver = lifecycleCoroutineActive && !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        MedicationListToggleTestHook.onFeedbackEligibility(applicationContext, canDeliver)
+        if (!canDeliver) return
+        when (outcome) {
+            is MedicationListToggleOutcome.PersistenceFailure -> Toast.makeText(
+                this,
+                "Could not update medication: ${outcome.error.message}",
+                Toast.LENGTH_LONG,
+            ).show()
+            is MedicationListToggleOutcome.AlarmCompletionFailure -> Toast.makeText(
+                this,
+                "Medication updated, but alarms could not be refreshed. Alarm setup will be retried when Meds Reminder resumes.",
+                Toast.LENGTH_LONG,
+            ).show()
+            MedicationListToggleOutcome.Success,
+            MedicationListToggleOutcome.Stale,
+            -> Unit
         }
     }
 
@@ -281,6 +340,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /** Test-only target-side visibility check for the narrow M8 filesystem control. */
+    internal fun isMedicationListToggleTestControlActive(): Boolean =
+        MedicationListToggleTestHook.isActive(applicationContext)
 
     private fun refreshCapabilities() {
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -387,25 +450,125 @@ internal fun buildNotificationCapabilityItem(
     )
 }
 
-/** The narrow Room edit used exclusively by the medication-list Enabled switch. */
-internal suspend fun applyMedicationListToggle(
-    database: AppDatabase,
-    item: MedicationWithTimes,
-    enabled: Boolean,
-    nowMillis: Long,
-): com.example.medsreminder.data.MedicationScheduleEditResult = database.applyMedicationScheduleEdit(
-    edit = MedicationScheduleEdit(
-        medicationId = item.medication.id,
-        name = item.medication.name.trim(),
-        instructions = item.medication.instructions?.trim()?.ifBlank { null },
-        enabled = enabled,
-        reminders = item.reminderTimes.map {
-            ReminderScheduleEdit(it.id, it.minuteOfDay, it.weekdayMask)
-        },
-    ),
-    nowMillis = nowMillis,
-    zoneId = ZoneId.systemDefault(),
-)
+private sealed interface MedicationListToggleOutcome {
+    data object Success : MedicationListToggleOutcome
+    data object Stale : MedicationListToggleOutcome
+    data class PersistenceFailure(val error: Throwable) : MedicationListToggleOutcome
+    data class AlarmCompletionFailure(val error: Throwable) : MedicationListToggleOutcome
+}
+
+/**
+ * Narrow test-only observation/hold points for the real list-toggle operation.
+ *
+ * Instrumentation test and target APK classes are not guaranteed to share an object instance or
+ * preference cache. Controls are therefore filesystem sentinels in target-app private storage.
+ * Production has no control directory and each observation is then a no-op.
+ */
+internal object MedicationListToggleTestHook {
+    private const val DIRECTORY = "m8-list-toggle-test-hook"
+    private const val ACTIVE = "active"
+    private const val HOLD_BEFORE_ROOM = "hold-before-room"
+    private const val HOLD_AFTER_ROOM = "hold-after-room"
+    private const val RELEASE_BEFORE_ROOM = "release-before-room"
+    private const val RELEASE_AFTER_ROOM = "release-after-room"
+    private const val FAIL_AFTER_ROOM = "fail-after-room"
+    private const val BEFORE_ROOM_REACHED = "before-room-reached"
+    private const val AFTER_ROOM_REACHED = "after-room-reached"
+    private const val PHASE_A_CALLS = "phase-a-calls"
+    private const val PHASE_B_CALLS = "phase-b-calls"
+    private const val FEEDBACK_SEEN = "feedback-seen"
+    private const val FEEDBACK_ELIGIBLE = "feedback-eligible"
+    private const val HOLD_TIMEOUT_MILLIS = 15_000L
+
+    fun configure(
+        context: Context,
+        holdBeforeRoom: Boolean = false,
+        holdAfterRoom: Boolean = false,
+        failAfterRoom: Boolean = false,
+    ) {
+        reset(context)
+        directory(context).mkdirs()
+        touch(context, ACTIVE)
+        if (holdBeforeRoom) touch(context, HOLD_BEFORE_ROOM)
+        if (holdAfterRoom) touch(context, HOLD_AFTER_ROOM)
+        if (failAfterRoom) touch(context, FAIL_AFTER_ROOM)
+    }
+
+    fun reset(context: Context) {
+        directory(context).deleteRecursively()
+    }
+
+    fun releaseBeforeRoom(context: Context) {
+        touch(context, RELEASE_BEFORE_ROOM)
+    }
+
+    fun releaseAfterRoom(context: Context) {
+        touch(context, RELEASE_AFTER_ROOM)
+    }
+
+    fun beforeRoomReached(context: Context): Boolean = file(context, BEFORE_ROOM_REACHED).exists()
+    fun afterRoomReached(context: Context): Boolean = file(context, AFTER_ROOM_REACHED).exists()
+    fun phaseACalls(context: Context): Int = value(context, PHASE_A_CALLS)
+    fun phaseBCalls(context: Context): Int = value(context, PHASE_B_CALLS)
+    fun feedbackSeen(context: Context): Boolean = file(context, FEEDBACK_SEEN).exists()
+    fun feedbackEligible(context: Context): Boolean = file(context, FEEDBACK_ELIGIBLE).readTextOrNull() == "true"
+    fun isActive(context: Context): Boolean = file(context, ACTIVE).exists()
+
+    suspend fun beforeRoom(context: Context) {
+        mark(context, BEFORE_ROOM_REACHED)
+        awaitRelease(context, HOLD_BEFORE_ROOM, RELEASE_BEFORE_ROOM)
+    }
+
+    suspend fun afterRoomBeforePhaseB(context: Context) {
+        mark(context, AFTER_ROOM_REACHED)
+        awaitRelease(context, HOLD_AFTER_ROOM, RELEASE_AFTER_ROOM)
+        if (file(context, FAIL_AFTER_ROOM).exists()) {
+            throw IllegalStateException("Test alarm completion failure")
+        }
+    }
+
+    fun incrementPhaseA(context: Context) = increment(context, PHASE_A_CALLS)
+    fun incrementPhaseB(context: Context) = increment(context, PHASE_B_CALLS)
+
+    fun onFeedbackEligibility(context: Context, eligible: Boolean) {
+        if (!isActive(context)) return
+        touch(context, FEEDBACK_SEEN)
+        file(context, FEEDBACK_ELIGIBLE).writeText(eligible.toString())
+    }
+
+    private suspend fun awaitRelease(context: Context, holdKey: String, releaseKey: String) {
+        if (!isActive(context) || !file(context, holdKey).exists()) return
+        val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+        while (!file(context, releaseKey).exists()) {
+            if (!isActive(context)) return
+            check(SystemClock.elapsedRealtime() < deadline) { "M8 test hook was not released" }
+            delay(10)
+        }
+    }
+
+    private fun mark(context: Context, key: String) {
+        if (isActive(context)) touch(context, key)
+    }
+
+    private fun increment(context: Context, key: String) {
+        if (!isActive(context)) return
+        file(context, key).writeText((value(context, key) + 1).toString())
+    }
+
+    private fun value(context: Context, key: String): Int =
+        file(context, key).readTextOrNull()?.toIntOrNull() ?: 0
+
+    private fun touch(context: Context, key: String) {
+        directory(context).mkdirs()
+        file(context, key).writeText("")
+    }
+
+    private fun directory(context: Context) = File(context.applicationContext.filesDir, DIRECTORY)
+    private fun file(context: Context, key: String) = File(directory(context), key)
+    private fun File.readTextOrNull(): String? = if (exists()) readText() else null
+}
+
+private const val TAG = "MainActivity"
 
 internal suspend fun synchronizeRingingOnResume(
     context: Context,

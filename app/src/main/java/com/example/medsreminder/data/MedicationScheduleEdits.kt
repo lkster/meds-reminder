@@ -27,6 +27,48 @@ data class MedicationScheduleEditResult(
     val refreshRinging: Boolean,
 )
 
+/**
+ * Persists the medication-list Enabled switch without accepting any list snapshot fields.
+ * A null result means the medication was deleted before this stale toggle reached Room.
+ */
+suspend fun AppDatabase.applyMedicationListToggle(
+    medicationId: Long,
+    enabled: Boolean,
+    nowMillis: Long,
+    zoneId: ZoneId,
+): MedicationScheduleEditResult? = withTransaction {
+    val medicationDao = medicationDao()
+    val occurrenceDao = occurrenceDao()
+    val previous = medicationDao.get(medicationId) ?: return@withTransaction null
+    val refreshRinging = occurrenceDao.getCurrentRinging() != null
+    val obsoleteIds = mutableListOf<String>()
+
+    if (previous.enabled != enabled) {
+        medicationDao.updateMedication(previous.copy(enabled = enabled))
+    }
+
+    if (!enabled) {
+        obsoleteIds += occurrenceDao.getMedicationNonterminalIds(medicationId)
+        occurrenceDao.deleteMedicationNonterminal(medicationId)
+    } else {
+        medicationDao.getTimes(medicationId).forEach { reminder ->
+            ensureFutureBase(
+                reminderTimeId = reminder.id,
+                minuteOfDay = reminder.minuteOfDay,
+                weekdayMask = reminder.weekdayMask,
+                nowMillis = nowMillis,
+                zoneId = zoneId,
+            )
+        }
+    }
+
+    MedicationScheduleEditResult(
+        medicationId = medicationId,
+        obsoleteOccurrenceIds = obsoleteIds.distinct(),
+        refreshRinging = refreshRinging,
+    )
+}
+
 suspend fun AppDatabase.applyMedicationScheduleEdit(
     edit: MedicationScheduleEdit,
     nowMillis: Long,

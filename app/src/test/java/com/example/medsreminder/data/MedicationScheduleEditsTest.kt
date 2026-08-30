@@ -9,9 +9,11 @@ import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -311,6 +313,83 @@ class MedicationScheduleEditsTest {
         assertEquals(1, database.occurrenceDao().getScheduledBases(reminderTimeId).count {
             it.scheduledAtEpochMillis > now
         })
+    }
+
+    @Test
+    fun listDisableChangesOnlyEnabledAndCancelsMedicationNonterminalOccurrences() = runBlocking {
+        insert("base", now + 60_000L)
+        insert("snooze", now + 5 * 60_000L, OccurrenceKind.SNOOZE)
+
+        val result = requireNotNull(
+            database.applyMedicationListToggle(medicationId, false, now, zone),
+        )
+
+        assertFalse(database.medicationDao().get(medicationId)!!.enabled)
+        assertEquals(setOf("base", "snooze"), result.obsoleteOccurrenceIds.toSet())
+        assertNull(database.occurrenceDao().get("base"))
+        assertNull(database.occurrenceDao().get("snooze"))
+        assertNull(database.occurrenceDao().getFutureBase(reminderTimeId, now))
+    }
+
+    @Test
+    fun listEnableReadsCurrentRoomRemindersAndKeepsOneCanonicalFuture() = runBlocking {
+        database.medicationDao().updateMedication(
+            database.medicationDao().get(medicationId)!!.copy(enabled = false),
+        )
+        database.medicationDao().updateTime(
+            database.medicationDao().getTimes(medicationId).single().copy(
+                minuteOfDay = 9 * 60,
+                weekdayMask = MONDAY_ONLY,
+            ),
+        )
+
+        database.applyMedicationListToggle(medicationId, true, now, zone)
+        database.applyMedicationListToggle(medicationId, true, now, zone)
+
+        assertTrue(database.medicationDao().get(medicationId)!!.enabled)
+        val currentReminder = database.medicationDao().getTimes(medicationId).single()
+        assertEquals(9 * 60, currentReminder.minuteOfDay)
+        assertEquals(MONDAY_ONLY, currentReminder.weekdayMask)
+        assertEquals(1, database.occurrenceDao().getScheduledBases(currentReminder.id).count {
+            it.scheduledAtEpochMillis > now
+        })
+    }
+
+    @Test
+    fun listToggleCannotRewriteNewerMedicationOrReminderFields() = runBlocking {
+        val currentMedication = database.medicationDao().get(medicationId)!!
+        database.medicationDao().updateMedication(
+            currentMedication.copy(name = "New name", instructions = "New instructions"),
+        )
+        database.medicationDao().updateTime(
+            database.medicationDao().getTimes(medicationId).single().copy(
+                minuteOfDay = 21 * 60,
+                weekdayMask = WEEKEND,
+            ),
+        )
+
+        database.applyMedicationListToggle(medicationId, false, now, zone)
+
+        assertEquals(
+            MedicationEntity(medicationId, "New name", "New instructions", false),
+            database.medicationDao().get(medicationId),
+        )
+        val reminder = database.medicationDao().getTimes(medicationId).single()
+        assertEquals(reminderTimeId, reminder.id)
+        assertEquals(21 * 60, reminder.minuteOfDay)
+        assertEquals(WEEKEND, reminder.weekdayMask)
+    }
+
+    @Test
+    fun listToggleForMissingMedicationIsHarmlessNoOp() = runBlocking {
+        database.medicationDao().deleteMedication(database.medicationDao().get(medicationId)!!)
+
+        val result = database.applyMedicationListToggle(medicationId, true, now, zone)
+
+        assertNull(result)
+        assertNull(database.medicationDao().get(medicationId))
+        assertTrue(database.medicationDao().getTimes(medicationId).isEmpty())
+        assertTrue(database.occurrenceDao().getScheduledBases(reminderTimeId).isEmpty())
     }
 
     @Test

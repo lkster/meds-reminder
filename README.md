@@ -1,4 +1,4 @@
-# Meds Reminder M6
+# Meds Reminder M8
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,27 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M7 alarm readiness and M6 editor lifecycle
+## M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+Medication-list enable/disable is an enabled-only Room transaction. It reads the medication and
+current reminder rows inside Room, so an accepted list snapshot can never overwrite a newer name,
+instructions, reminder identity, reminder time, or weekday mask saved elsewhere. Disabling removes
+the medication's nonterminal occurrences and returns their UUIDs for AlarmManager cancellation;
+enabling maintains one canonical future BASE for every current Room reminder.
+
+The Enabled-switch callback is the list-toggle acceptance boundary. Its finite Room-to-alarm
+completion operation is structurally owned by MainActivity's lifecycle coroutine, enters
+undispatched, and uses `withContext(NonCancellable)` only for that protected region. The real Room
+and AlarmManager work switches to IO inside that region; `NonCancellable` is not combined with a
+dispatcher. Ordinary Activity recreation or finish therefore cannot abandon an accepted operation
+between a committed Room update and alarm completion. Room remains authoritative after commit; an
+alarm-completion failure never repeats the Room mutation, and an old or destroyed Activity never
+delivers late Toast/UI feedback. Durable continuation through process death remains deliberately
+absent: the authoritative Room state is recovered by the established reconciliation paths.
+
+List toggles remain MainActivity-owned and intentionally introduce no list ViewModel, global lock,
+application coroutine scope, WorkManager flow, or generic mutation framework. The M6 editor owner
+and its separate two-phase retry behavior remain unchanged.
 
 The medication list now shows alarm readiness immediately below the header, before Add medication,
 alarm behavior, or medication cards. Notifications, the Medication alarms channel, exact-alarm

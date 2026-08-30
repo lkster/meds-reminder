@@ -8,10 +8,10 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.medsreminder.MainActivity
-import com.example.medsreminder.applyMedicationListToggle
 import com.example.medsreminder.data.AppDatabase
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
+import com.example.medsreminder.data.applyMedicationListToggle
 import com.example.medsreminder.data.applyMedicationScheduleEdit
 import java.time.ZoneId
 import java.util.concurrent.CountDownLatch
@@ -245,13 +245,13 @@ class MedicationEditorLifecycleTest {
         onOwner { openNew(); updateDraft(validDraft()); submit() }
         assertTrue(control.roomStarted.await(3, TimeUnit.SECONDS))
 
-        // This is the same persistence edit used by the list path; it never touches editor state.
+        // This is the same focused persistence edit used by the list path; it never touches editor state.
         runBlocking {
-            applyMedicationListToggle(
-                database = database,
-                item = existing(medicationId),
+            database.applyMedicationListToggle(
+                medicationId = medicationId,
                 enabled = false,
                 nowMillis = System.currentTimeMillis(),
+                zoneId = ZoneId.systemDefault(),
             )
         }
         assertTrue(owner().saveState is EditorSaveState.SavingRoom)
