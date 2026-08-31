@@ -31,7 +31,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
-import androidx.room.withTransaction
 import com.example.medsreminder.alarm.AlarmRingingService
 import com.example.medsreminder.alarm.AlarmPreferenceSnapshot
 import com.example.medsreminder.alarm.AlarmPreferences
@@ -41,6 +40,8 @@ import com.example.medsreminder.alarm.ReconciliationMode
 import com.example.medsreminder.data.AppDatabase
 import com.example.medsreminder.data.HistoryOccurrence
 import com.example.medsreminder.data.MedicationWithTimes
+import com.example.medsreminder.data.MedicationDeleteResult
+import com.example.medsreminder.data.applyMedicationDelete
 import com.example.medsreminder.data.applyMedicationListToggle
 import com.example.medsreminder.ui.CapabilityItem
 import com.example.medsreminder.ui.HistoryItem
@@ -317,33 +318,79 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun deleteMedication(item: MedicationWithTimes) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            runCatching {
-                var obsoleteIds = emptyList<String>()
-                var refreshRinging = false
-                database.withTransaction {
-                    val ringingId = database.occurrenceDao().getCurrentRinging()?.occurrenceId
-                    obsoleteIds = database.occurrenceDao()
-                        .getMedicationNonterminalIds(item.medication.id)
-                    refreshRinging = ringingId != null
-                    database.medicationDao().deleteMedication(item.medication)
-                }
-                obsoleteIds.forEach(scheduler::cancelOccurrence)
-                if (refreshRinging) {
-                    AlarmRingingService.synchronizeWithPersistedQueue(this@MainActivity, database)
-                }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Could not delete: ${error.message}", Toast.LENGTH_LONG).show()
+    /** An accepted deletion is a finite Room-then-projection operation owned by this Activity. */
+    private fun deleteMedication(medicationId: Long) {
+        lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val outcome = withContext(NonCancellable) {
+                withContext(Dispatchers.IO) {
+                    completeMedicationDelete(medicationId)
                 }
             }
+            deliverMedicationDeleteFeedback(outcome, isActive)
+        }
+    }
+
+    private suspend fun completeMedicationDelete(medicationId: Long): MedicationDeleteOutcome {
+        val result = try {
+            MedicationDeleteTestHook.beforeRoom(applicationContext)
+            MedicationDeleteTestHook.incrementPhaseA(applicationContext)
+            database.applyMedicationDelete(medicationId)
+        } catch (error: Throwable) {
+            Log.e(TAG, "Medication deletion failed before Room persistence", error)
+            return MedicationDeleteOutcome.PersistenceFailure(error)
+        }
+        if (result is MedicationDeleteResult.Stale) return MedicationDeleteOutcome.Stale
+        result as MedicationDeleteResult.Deleted
+
+        return try {
+            MedicationDeleteTestHook.afterRoomBeforePhaseB(applicationContext)
+            MedicationDeleteTestHook.incrementPhaseB(applicationContext)
+            result.obsoleteOccurrenceIds.forEach(scheduler::cancelOccurrence)
+            reconciler.reconcile(ReconciliationMode.ROUTINE)
+            if (result.refreshRinging) {
+                AlarmRingingService.synchronizeWithPersistedQueue(applicationContext, database)
+                MedicationDeleteTestHook.markRingingSynchronizationCompleted(applicationContext)
+            }
+            MedicationDeleteTestHook.markPhaseBCompleted(applicationContext)
+            MedicationDeleteOutcome.Success
+        } catch (error: Throwable) {
+            Log.e(TAG, "Medication deleted, but alarm completion failed", error)
+            MedicationDeleteOutcome.AlarmCompletionFailure(error)
+        }
+    }
+
+    private fun deliverMedicationDeleteFeedback(
+        outcome: MedicationDeleteOutcome,
+        lifecycleCoroutineActive: Boolean,
+    ) {
+        val canDeliver = lifecycleCoroutineActive && !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        MedicationDeleteTestHook.onFeedbackEligibility(applicationContext, canDeliver)
+        if (!canDeliver) return
+        when (outcome) {
+            is MedicationDeleteOutcome.PersistenceFailure -> Toast.makeText(
+                this,
+                "Could not delete medication: ${outcome.error.message}",
+                Toast.LENGTH_LONG,
+            ).show()
+            is MedicationDeleteOutcome.AlarmCompletionFailure -> Toast.makeText(
+                this,
+                "Medication deleted, but alarms could not be fully cleaned up. Alarm setup will be retried when Meds Reminder resumes.",
+                Toast.LENGTH_LONG,
+            ).show()
+            MedicationDeleteOutcome.Success,
+            MedicationDeleteOutcome.Stale,
+            -> Unit
         }
     }
 
     /** Test-only target-side visibility check for the narrow M8 filesystem control. */
     internal fun isMedicationListToggleTestControlActive(): Boolean =
         MedicationListToggleTestHook.isActive(applicationContext)
+
+    /** Test-only target-side visibility check for the narrow M9 filesystem control. */
+    internal fun isMedicationDeleteTestControlActive(): Boolean =
+        MedicationDeleteTestHook.isActive(applicationContext)
 
     private fun refreshCapabilities() {
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -457,6 +504,13 @@ private sealed interface MedicationListToggleOutcome {
     data class AlarmCompletionFailure(val error: Throwable) : MedicationListToggleOutcome
 }
 
+private sealed interface MedicationDeleteOutcome {
+    data object Success : MedicationDeleteOutcome
+    data object Stale : MedicationDeleteOutcome
+    data class PersistenceFailure(val error: Throwable) : MedicationDeleteOutcome
+    data class AlarmCompletionFailure(val error: Throwable) : MedicationDeleteOutcome
+}
+
 /**
  * Narrow test-only observation/hold points for the real list-toggle operation.
  *
@@ -563,6 +617,103 @@ internal object MedicationListToggleTestHook {
         file(context, key).writeText("")
     }
 
+    private fun directory(context: Context) = File(context.applicationContext.filesDir, DIRECTORY)
+    private fun file(context: Context, key: String) = File(directory(context), key)
+    private fun File.readTextOrNull(): String? = if (exists()) readText() else null
+}
+
+/** Narrow M9 delete-operation test control; production has no control directory. */
+internal object MedicationDeleteTestHook {
+    private const val DIRECTORY = "m9-medication-delete-test-hook"
+    private const val ACTIVE = "active"
+    private const val HOLD_BEFORE_ROOM = "hold-before-room"
+    private const val HOLD_AFTER_ROOM = "hold-after-room"
+    private const val RELEASE_BEFORE_ROOM = "release-before-room"
+    private const val RELEASE_AFTER_ROOM = "release-after-room"
+    private const val FAIL_AFTER_ROOM = "fail-after-room"
+    private const val BEFORE_ROOM_REACHED = "before-room-reached"
+    private const val AFTER_ROOM_REACHED = "after-room-reached"
+    private const val PHASE_A_CALLS = "phase-a-calls"
+    private const val PHASE_B_CALLS = "phase-b-calls"
+    private const val PHASE_B_COMPLETIONS = "phase-b-completions"
+    private const val RINGING_SYNCHRONIZATION_COMPLETIONS = "ringing-synchronization-completions"
+    private const val FEEDBACK_SEEN = "feedback-seen"
+    private const val FEEDBACK_ELIGIBLE = "feedback-eligible"
+    private const val HOLD_TIMEOUT_MILLIS = 15_000L
+
+    fun configure(
+        context: Context,
+        holdBeforeRoom: Boolean = false,
+        holdAfterRoom: Boolean = false,
+        failAfterRoom: Boolean = false,
+    ) {
+        reset(context)
+        directory(context).mkdirs()
+        touch(context, ACTIVE)
+        if (holdBeforeRoom) touch(context, HOLD_BEFORE_ROOM)
+        if (holdAfterRoom) touch(context, HOLD_AFTER_ROOM)
+        if (failAfterRoom) touch(context, FAIL_AFTER_ROOM)
+    }
+
+    fun reset(context: Context) { directory(context).deleteRecursively() }
+    fun releaseBeforeRoom(context: Context) = touch(context, RELEASE_BEFORE_ROOM)
+    fun releaseAfterRoom(context: Context) = touch(context, RELEASE_AFTER_ROOM)
+    fun beforeRoomReached(context: Context): Boolean = file(context, BEFORE_ROOM_REACHED).exists()
+    fun afterRoomReached(context: Context): Boolean = file(context, AFTER_ROOM_REACHED).exists()
+    fun phaseACalls(context: Context): Int = value(context, PHASE_A_CALLS)
+    fun phaseBCalls(context: Context): Int = value(context, PHASE_B_CALLS)
+    fun phaseBCompletions(context: Context): Int = value(context, PHASE_B_COMPLETIONS)
+    fun ringingSynchronizationCompletions(context: Context): Int =
+        value(context, RINGING_SYNCHRONIZATION_COMPLETIONS)
+    fun feedbackSeen(context: Context): Boolean = file(context, FEEDBACK_SEEN).exists()
+    fun feedbackEligible(context: Context): Boolean = file(context, FEEDBACK_ELIGIBLE).readTextOrNull() == "true"
+    fun isActive(context: Context): Boolean = file(context, ACTIVE).exists()
+
+    suspend fun beforeRoom(context: Context) {
+        mark(context, BEFORE_ROOM_REACHED)
+        awaitRelease(context, HOLD_BEFORE_ROOM, RELEASE_BEFORE_ROOM)
+    }
+
+    suspend fun afterRoomBeforePhaseB(context: Context) {
+        mark(context, AFTER_ROOM_REACHED)
+        awaitRelease(context, HOLD_AFTER_ROOM, RELEASE_AFTER_ROOM)
+        if (file(context, FAIL_AFTER_ROOM).exists()) {
+            throw IllegalStateException("Test alarm cleanup failure")
+        }
+    }
+
+    fun incrementPhaseA(context: Context) = increment(context, PHASE_A_CALLS)
+    fun incrementPhaseB(context: Context) = increment(context, PHASE_B_CALLS)
+    fun markPhaseBCompleted(context: Context) = increment(context, PHASE_B_COMPLETIONS)
+    fun markRingingSynchronizationCompleted(context: Context) =
+        increment(context, RINGING_SYNCHRONIZATION_COMPLETIONS)
+
+    fun onFeedbackEligibility(context: Context, eligible: Boolean) {
+        if (!isActive(context)) return
+        touch(context, FEEDBACK_SEEN)
+        file(context, FEEDBACK_ELIGIBLE).writeText(eligible.toString())
+    }
+
+    private suspend fun awaitRelease(context: Context, holdKey: String, releaseKey: String) {
+        if (!isActive(context) || !file(context, holdKey).exists()) return
+        val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+        while (!file(context, releaseKey).exists()) {
+            if (!isActive(context)) return
+            check(SystemClock.elapsedRealtime() < deadline) { "M9 test hook was not released" }
+            delay(10)
+        }
+    }
+
+    private fun mark(context: Context, key: String) { if (isActive(context)) touch(context, key) }
+    private fun increment(context: Context, key: String) {
+        if (isActive(context)) file(context, key).writeText((value(context, key) + 1).toString())
+    }
+    private fun value(context: Context, key: String): Int =
+        file(context, key).readTextOrNull()?.toIntOrNull() ?: 0
+    private fun touch(context: Context, key: String) {
+        directory(context).mkdirs()
+        file(context, key).writeText("")
+    }
     private fun directory(context: Context) = File(context.applicationContext.filesDir, DIRECTORY)
     private fun file(context: Context, key: String) = File(directory(context), key)
     private fun File.readTextOrNull(): String? = if (exists()) readText() else null

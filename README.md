@@ -1,4 +1,4 @@
-# Meds Reminder M8
+# Meds Reminder M9
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,22 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+Delete confirmation is saveable same-process UI state. It restores by stable medication ID plus
+display name, never by retaining a `MedicationWithTimes` snapshot as mutation authority. Confirming
+the dialog accepts a finite deletion operation: Room first reads the current ID and atomically
+deletes it through the existing reminder/occurrence foreign-key cascades, then cancellation removes
+the captured nonterminal AlarmManager UUIDs, routine reconciliation rebuilds projection from Room,
+and an existing ringing queue is synchronized. This operation uses the same undispatched,
+`withContext(NonCancellable)` then IO lifecycle boundary as M8, so ordinary Activity recreation or
+finish cannot abandon accepted Room-to-alarm completion.
+
+A missing ID is a harmless stale no-op. Once Room has committed, alarm cleanup failure neither
+repeats nor rolls back deletion and is reported as incomplete cleanup only when the originating
+Activity remains resumed. A stale post-cascade UUID delivery remains a harmless Room-authority
+no-op. Process death still has no durable delete-operation journal; restart reconciliation remains
+the repair boundary.
 
 Medication-list enable/disable is an enabled-only Room transaction. It reads the medication and
 current reminder rows inside Room, so an accepted list snapshot can never overwrite a newer name,

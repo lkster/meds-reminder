@@ -393,6 +393,57 @@ class MedicationScheduleEditsTest {
     }
 
     @Test
+    fun medicationDeleteIsAuthoritativeCascadesAllRowsAndReturnsOnlyNonterminalIds() = runBlocking {
+        insert("scheduled", now + 60_000L)
+        insert("ringing", now, status = OccurrenceStatus.RINGING)
+        insert("history", now - 60_000L, status = OccurrenceStatus.TAKEN)
+
+        val result = database.applyMedicationDelete(medicationId)
+
+        assertEquals(
+            MedicationDeleteResult.Deleted(
+                obsoleteOccurrenceIds = listOf("ringing", "scheduled"),
+                refreshRinging = true,
+            ),
+            result,
+        )
+        assertNull(database.medicationDao().get(medicationId))
+        assertTrue(database.medicationDao().getTimes(medicationId).isEmpty())
+        assertNull(database.occurrenceDao().get("scheduled"))
+        assertNull(database.occurrenceDao().get("ringing"))
+        assertNull(database.occurrenceDao().get("history"))
+    }
+
+    @Test
+    fun medicationDeleteForMissingIdIsHarmlessAndLeavesOtherMedicationUntouched() = runBlocking {
+        val otherMedicationId = database.medicationDao().insertMedication(
+            MedicationEntity(name = "Other", instructions = null, enabled = true),
+        )
+        val otherReminderId = database.medicationDao().insertTime(
+            ReminderTimeEntity(
+                medicationId = otherMedicationId,
+                minuteOfDay = 9 * 60,
+                weekdayMask = MONDAY_TO_FRIDAY,
+            ),
+        )
+        database.occurrenceDao().insert(
+            AlarmOccurrenceEntity(
+                id = "other-scheduled",
+                reminderTimeId = otherReminderId,
+                kind = OccurrenceKind.BASE,
+                scheduledAtEpochMillis = now + 60_000L,
+                status = OccurrenceStatus.SCHEDULED,
+            ),
+        )
+        database.medicationDao().deleteMedication(database.medicationDao().get(medicationId)!!)
+
+        assertEquals(MedicationDeleteResult.Stale, database.applyMedicationDelete(medicationId))
+        assertEquals("Other", database.medicationDao().get(otherMedicationId)?.name)
+        assertEquals(listOf(otherReminderId), database.medicationDao().getTimes(otherMedicationId).map { it.id })
+        assertEquals(OccurrenceStatus.SCHEDULED, database.occurrenceDao().get("other-scheduled")?.status)
+    }
+
+    @Test
     fun addingAndRemovingReminderUpdatesCanonicalBasesAndUsesExistingCascade() = runBlocking {
         insert("source-snooze", now + 5 * 60_000L, OccurrenceKind.SNOOZE)
         apply(
@@ -443,6 +494,7 @@ class MedicationScheduleEditsTest {
         id: String,
         scheduledAt: Long,
         kind: OccurrenceKind = OccurrenceKind.BASE,
+        status: OccurrenceStatus = OccurrenceStatus.SCHEDULED,
     ) {
         database.occurrenceDao().insert(
             AlarmOccurrenceEntity(
@@ -450,7 +502,7 @@ class MedicationScheduleEditsTest {
                 reminderTimeId = reminderTimeId,
                 kind = kind,
                 scheduledAtEpochMillis = scheduledAt,
-                status = OccurrenceStatus.SCHEDULED,
+                status = status,
             ),
         )
     }

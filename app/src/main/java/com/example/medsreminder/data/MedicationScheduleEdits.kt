@@ -27,6 +27,30 @@ data class MedicationScheduleEditResult(
     val refreshRinging: Boolean,
 )
 
+/** The authoritative result of a medication delete transaction. */
+sealed interface MedicationDeleteResult {
+    data object Stale : MedicationDeleteResult
+
+    data class Deleted(
+        val obsoleteOccurrenceIds: List<String>,
+        val refreshRinging: Boolean,
+    ) : MedicationDeleteResult
+}
+
+/**
+ * Deletes only the current row identified by [medicationId]. Reminder and occurrence removal is
+ * deliberately left to the established foreign-key cascades.
+ */
+suspend fun AppDatabase.applyMedicationDelete(medicationId: Long): MedicationDeleteResult =
+    withTransaction {
+        val medication = medicationDao().get(medicationId) ?: return@withTransaction MedicationDeleteResult.Stale
+        val occurrenceDao = occurrenceDao()
+        val obsoleteOccurrenceIds = occurrenceDao.getMedicationNonterminalIds(medicationId)
+        val refreshRinging = occurrenceDao.getCurrentRinging() != null
+        medicationDao().deleteMedication(medication)
+        MedicationDeleteResult.Deleted(obsoleteOccurrenceIds, refreshRinging)
+    }
+
 /**
  * Persists the medication-list Enabled switch without accepting any list snapshot fields.
  * A null result means the medication was deleted before this stale toggle reached Room.

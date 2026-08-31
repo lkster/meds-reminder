@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,9 +116,17 @@ fun MedicationListScreen(
     onAdd: () -> Unit,
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
-    onDelete: (MedicationWithTimes) -> Unit,
+    onDelete: (Long) -> Unit,
 ) {
-    var deleteCandidate by remember { mutableStateOf<MedicationWithTimes?>(null) }
+    // The dialog is UI state, but its target must remain a stable identity rather than a
+    // retained list snapshot. Keeping the display name makes restoration independent of the
+    // first post-recreation Room Flow emission.
+    var deleteCandidateId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var deleteCandidateName by rememberSaveable { mutableStateOf<String?>(null) }
+    fun clearDeleteCandidate() {
+        deleteCandidateId = null
+        deleteCandidateName = null
+    }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -188,7 +197,10 @@ fun MedicationListScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { onEdit(item) }) { Text("Edit") }
-                        TextButton(onClick = { deleteCandidate = item }) { Text("Delete") }
+                        TextButton(onClick = {
+                            deleteCandidateId = item.medication.id
+                            deleteCandidateName = item.medication.name
+                        }) { Text("Delete") }
                     }
                 }
             }
@@ -205,18 +217,18 @@ fun MedicationListScreen(
         }
     }
 
-    deleteCandidate?.let { item ->
+    deleteCandidateId?.let { medicationId ->
         AlertDialog(
-            onDismissRequest = { deleteCandidate = null },
-            title = { Text("Delete ${item.medication.name}?") },
+            onDismissRequest = ::clearDeleteCandidate,
+            title = { Text("Delete ${deleteCandidateName ?: "this medication"}?") },
             text = { Text("Its reminder times, pending alarms, and history will be removed.") },
             confirmButton = {
                 TextButton(onClick = {
-                    deleteCandidate = null
-                    onDelete(item)
+                    clearDeleteCandidate()
+                    onDelete(medicationId)
                 }) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = ::clearDeleteCandidate) { Text("Cancel") } },
         )
     }
 }

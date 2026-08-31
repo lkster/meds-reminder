@@ -151,7 +151,7 @@ interface OccurrenceDao {
 
     @Query(
         "SELECT ao.id FROM alarm_occurrences ao INNER JOIN reminder_times rt ON rt.id = ao.reminder_time_id " +
-            "WHERE rt.medication_id = :medicationId AND ao.status IN ('SCHEDULED', 'RINGING')",
+            "WHERE rt.medication_id = :medicationId AND ao.status IN ('SCHEDULED', 'RINGING') ORDER BY ao.id",
     )
     suspend fun getMedicationNonterminalIds(medicationId: Long): List<String>
 
