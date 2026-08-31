@@ -43,8 +43,8 @@ class MedicationEditorLifecycleTest {
             AppDatabase::class.java,
         ).build()
         control = ControlledEditorSave(database)
-        MedicationEditorViewModelTestHook.factory = { application: Application ->
-            MedicationEditorViewModel.forTest(application, control.operations)
+        MedicationEditorViewModelTestHook.factory = { application: Application, savedStateHandle ->
+            MedicationEditorViewModel.forTest(application, savedStateHandle, control.operations)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }

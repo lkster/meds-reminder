@@ -1,10 +1,12 @@
 package com.example.medsreminder.ui
 
 import android.app.Application
+import android.os.Bundle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.example.medsreminder.alarm.AlarmRingingService
 import com.example.medsreminder.alarm.AlarmReconciler
@@ -28,14 +30,18 @@ import kotlinx.coroutines.withContext
  */
 class MedicationEditorViewModel private constructor(
     application: Application,
+    private val savedStateHandle: SavedStateHandle,
     private val saveOperations: MedicationEditorSaveOperations,
 ) : AndroidViewModel(application) {
-    constructor(application: Application) : this(
+    constructor(application: Application, savedStateHandle: SavedStateHandle) : this(
         application,
+        savedStateHandle,
         MedicationEditorSaveOperations.production(application),
     )
 
-    var draft by mutableStateOf<EditorDraft?>(null)
+    // Only editable draft data crosses the process boundary. Save phases and their results remain
+    // live-process state because Room is authoritative once Phase A has committed.
+    var draft by mutableStateOf(EditorDraftSnapshot.decode(savedStateHandle))
         private set
     var saveState by mutableStateOf<EditorSaveState>(EditorSaveState.Idle)
         private set
@@ -43,6 +49,7 @@ class MedicationEditorViewModel private constructor(
     fun openNew() {
         if (draft == null) {
             draft = EditorDraft.new()
+            saveDraft(draft!!)
             saveState = EditorSaveState.Idle
         }
     }
@@ -50,18 +57,23 @@ class MedicationEditorViewModel private constructor(
     fun openExisting(item: MedicationWithTimes) {
         if (draft == null) {
             draft = EditorDraft.from(item)
+            saveDraft(draft!!)
             saveState = EditorSaveState.Idle
         }
     }
 
     fun updateDraft(nextDraft: EditorDraft) {
-        if (!saveState.locksDraft) draft = nextDraft
+        if (!saveState.locksDraft) {
+            draft = nextDraft
+            saveDraft(nextDraft)
+        }
     }
 
     /** Discards only an idle or pre-commit-failed session; committed work remains retryable. */
     fun cancelIdleEditor() {
         if (!saveState.locksDraft) {
             draft = null
+            savedStateHandle.remove<Bundle>(EditorDraftSnapshot.KEY)
             saveState = EditorSaveState.Idle
         }
     }
@@ -72,6 +84,8 @@ class MedicationEditorViewModel private constructor(
 
         // EditorDraft and EditorTime are immutable, but make the submission boundary explicit.
         val snapshot = submittedDraft.copy(times = submittedDraft.times.map { it.copy() })
+        // Do this before launching Phase A: a captured state can never replay an uncertain Save.
+        savedStateHandle.remove<Bundle>(EditorDraftSnapshot.KEY)
         saveState = EditorSaveState.SavingRoom
         viewModelScope.launch {
             try {
@@ -83,6 +97,8 @@ class MedicationEditorViewModel private constructor(
                 finishCommittedSave(result)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
+                // This is only live saved state until the host performs another capture.
+                saveDraft(snapshot)
                 saveState = EditorSaveState.RoomFailure(error.displayMessage())
             }
         }
@@ -118,11 +134,16 @@ class MedicationEditorViewModel private constructor(
 
     private fun Throwable.displayMessage(): String = message ?: "Unknown error"
 
+    private fun saveDraft(draft: EditorDraft) {
+        savedStateHandle[EditorDraftSnapshot.KEY] = EditorDraftSnapshot.encode(draft)
+    }
+
     companion object {
         internal fun forTest(
             application: Application,
+            savedStateHandle: SavedStateHandle,
             operations: MedicationEditorSaveOperations,
-        ) = MedicationEditorViewModel(application, operations)
+        ) = MedicationEditorViewModel(application, savedStateHandle, operations)
     }
 }
 
@@ -159,7 +180,85 @@ internal class MedicationEditorSaveOperations(
 /** Test-only Activity factory override; production leaves this null. */
 internal object MedicationEditorViewModelTestHook {
     @Volatile
-    var factory: ((Application) -> MedicationEditorViewModel)? = null
+    var factory: ((Application, SavedStateHandle) -> MedicationEditorViewModel)? = null
+}
+
+/** One deliberately narrow, Bundle-compatible editor snapshot. */
+private object EditorDraftSnapshot {
+    const val KEY = "medication_editor_draft_v1"
+    private const val VERSION = 1
+    private const val VERSION_KEY = "version"
+    private const val ID_PRESENT_KEY = "id_present"
+    private const val ID_KEY = "id"
+    private const val NAME_KEY = "name"
+    private const val INSTRUCTIONS_KEY = "instructions"
+    private const val ENABLED_KEY = "enabled"
+    private const val REMINDER_COUNT_KEY = "reminder_count"
+    private const val REMINDER_ID_PRESENT_KEY = "reminder_id_present"
+    private const val REMINDER_IDS_KEY = "reminder_ids"
+    private const val MINUTES_KEY = "minutes"
+    private const val WEEKDAY_MASKS_KEY = "weekday_masks"
+
+    fun encode(draft: EditorDraft) = Bundle().apply {
+        putInt(VERSION_KEY, VERSION)
+        putBoolean(ID_PRESENT_KEY, draft.id != null)
+        putLong(ID_KEY, draft.id ?: 0L)
+        putString(NAME_KEY, draft.name)
+        putString(INSTRUCTIONS_KEY, draft.instructions)
+        putBoolean(ENABLED_KEY, draft.enabled)
+        putInt(REMINDER_COUNT_KEY, draft.times.size)
+        putBooleanArray(REMINDER_ID_PRESENT_KEY, draft.times.map { it.id != null }.toBooleanArray())
+        putLongArray(REMINDER_IDS_KEY, draft.times.map { it.id ?: 0L }.toLongArray())
+        putIntArray(MINUTES_KEY, draft.times.map { it.minuteOfDay }.toIntArray())
+        putIntArray(WEEKDAY_MASKS_KEY, draft.times.map { it.weekdayMask }.toIntArray())
+    }
+
+    fun decode(handle: SavedStateHandle): EditorDraft? {
+        return try {
+        val snapshot = handle.get<Any?>(KEY) as? Bundle ?: return null
+        if (snapshot.get(VERSION_KEY) !is Int || snapshot.getInt(VERSION_KEY) != VERSION ||
+            snapshot.get(ID_PRESENT_KEY) !is Boolean || snapshot.get(ID_KEY) !is Long ||
+            snapshot.get(NAME_KEY) !is String || snapshot.get(INSTRUCTIONS_KEY) !is String ||
+            snapshot.get(ENABLED_KEY) !is Boolean || snapshot.get(REMINDER_COUNT_KEY) !is Int ||
+            snapshot.get(REMINDER_ID_PRESENT_KEY) !is BooleanArray ||
+            snapshot.get(REMINDER_IDS_KEY) !is LongArray || snapshot.get(MINUTES_KEY) !is IntArray ||
+            snapshot.get(WEEKDAY_MASKS_KEY) !is IntArray
+        ) return null
+
+        val count = snapshot.getInt(REMINDER_COUNT_KEY)
+        if (count < 0) return null
+        val idsPresent = snapshot.getBooleanArray(REMINDER_ID_PRESENT_KEY) ?: return null
+        val ids = snapshot.getLongArray(REMINDER_IDS_KEY) ?: return null
+        val minutes = snapshot.getIntArray(MINUTES_KEY) ?: return null
+        val weekdayMasks = snapshot.getIntArray(WEEKDAY_MASKS_KEY) ?: return null
+        if (idsPresent.size != count || ids.size != count || minutes.size != count ||
+            weekdayMasks.size != count
+        ) return null
+
+        EditorDraft(
+            id = if (snapshot.getBoolean(ID_PRESENT_KEY)) snapshot.getLong(ID_KEY) else null,
+            name = snapshot.getString(NAME_KEY) ?: return null,
+            instructions = snapshot.getString(INSTRUCTIONS_KEY) ?: return null,
+            enabled = snapshot.getBoolean(ENABLED_KEY),
+            times = List(count) { index ->
+                EditorTime(
+                    id = if (idsPresent[index]) ids[index] else null,
+                    minuteOfDay = minutes[index],
+                    weekdayMask = weekdayMasks[index],
+                )
+            },
+        )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+}
+
+/** Narrow test access for malformed saved-state decoding coverage; not used by production code. */
+internal object MedicationEditorSavedStateTestAccess {
+    fun seedRawSnapshot(savedStateHandle: SavedStateHandle, snapshot: Bundle) {
+        savedStateHandle[EditorDraftSnapshot.KEY] = snapshot
+    }
 }
 
 sealed interface EditorSaveState {

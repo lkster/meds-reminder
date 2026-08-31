@@ -1,4 +1,4 @@
-# Meds Reminder M9
+# Meds Reminder M10
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,7 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
 
 Delete confirmation is saveable same-process UI state. It restores by stable medication ID plus
 display name, never by retaining a `MedicationWithTimes` snapshot as mutation authority. Confirming
@@ -59,10 +59,19 @@ incomplete; there is no mandatory onboarding or setup wizard. Readiness refreshe
 resumes after Android settings.
 
 The medication editor draft and its active Save are retained across normal, same-process Activity
-configuration recreation. This includes reminder identities, times, weekday selections and the
-active save phase. Unsaved drafts and in-memory editor Saves are deliberately not restored after
-process death; Room remains authoritative, so a transaction that committed before process death is
-visible from Room and an uncommitted edit is discarded.
+configuration recreation. Idle unsaved new and existing drafts also restore after system process
+death when Android captured the Activity saved state and the task remains restorable. This includes
+the medication and reminder identities, name, instructions, enabled state, reminder ordering,
+times, and weekday selections; even temporarily invalid editor input is restored unchanged.
+
+Save acceptance removes that restorable draft snapshot before Room Phase A begins. An accepted Save
+is therefore not durably continued or replayed after process death: if Phase A committed, Room plus
+startup/on-resume reconciliation is the recovery boundary; if it had not committed, the accepted
+edit may be lost. A genuine pre-commit Room failure republishes the draft into the live saved-state
+handle, but it becomes process-restorable only after a subsequent Activity saved-state capture. In
+the accepted stopped-host race—Save was accepted, Android captured draftless state, Phase A failed
+while stopped, and the process died before another start/stop capture—the draft may be lost.
+Restoration is not promised after force-stop, app-data clearing, or deliberate task removal.
 
 Editor Save explicitly separates the Room transaction from alarm completion. Once Room returns a
 `MedicationScheduleEditResult`, the medication is saved even if cancellation/reconciliation/ringing

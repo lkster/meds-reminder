@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.lifecycleScope
 import com.example.medsreminder.alarm.AlarmRingingService
 import com.example.medsreminder.alarm.AlarmPreferenceSnapshot
@@ -85,9 +87,12 @@ class MainActivity : ComponentActivity() {
         editorOwner = MedicationEditorViewModelTestHook.factory?.let { testFactory ->
             ViewModelProvider(this, object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                override fun <T : ViewModel> create(
+                    modelClass: Class<T>,
+                    extras: CreationExtras,
+                ): T {
                     check(modelClass == MedicationEditorViewModel::class.java)
-                    return testFactory(application) as T
+                    return testFactory(application, extras.createSavedStateHandle()) as T
                 }
             })[MedicationEditorViewModel::class.java]
         } ?: ViewModelProvider(this)[MedicationEditorViewModel::class.java]
