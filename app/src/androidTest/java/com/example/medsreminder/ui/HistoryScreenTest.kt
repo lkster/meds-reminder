@@ -13,6 +13,7 @@ import com.example.medsreminder.data.ReminderTimeEntity
 import com.example.medsreminder.data.WeekdayMask
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
 
@@ -52,6 +53,22 @@ class HistoryScreenTest {
         compose.onNodeWithText("No history yet").assertExists()
         compose.onNodeWithText("Taken, Skipped, and presented alarms with No response appear here.")
             .assertExists()
+    }
+
+    @Test
+    fun loadingHistoryKeepsBackAvailableWithoutEmptyStateCopy() {
+        var backCalls = 0
+        compose.setContent {
+            MaterialTheme { HistoryScreen(history = null, onBack = { backCalls++ }) }
+        }
+
+        compose.onNodeWithText("History").assertExists()
+        compose.onNodeWithText("Loading history…").assertExists()
+        compose.onNodeWithText("No history yet").assertDoesNotExist()
+        compose.onNodeWithText("Taken, Skipped, and presented alarms with No response appear here.")
+            .assertDoesNotExist()
+        compose.onNodeWithText("Back").performClick()
+        assertEquals(1, backCalls)
     }
 
     @Test

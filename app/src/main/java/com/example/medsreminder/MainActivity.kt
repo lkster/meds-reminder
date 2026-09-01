@@ -71,7 +71,8 @@ class MainActivity : ComponentActivity() {
 
     // Null until this Activity receives its first authoritative Room emission.
     private var medications by mutableStateOf<List<MedicationWithTimes>?>(null)
-    private var history by mutableStateOf<List<HistoryItem>>(emptyList())
+    // Null until this Activity receives its first authoritative Room history emission.
+    private var history by mutableStateOf<List<HistoryItem>?>(null)
     private lateinit var editorOwner: MedicationEditorViewModel
     private var capabilities by mutableStateOf(CapabilityState())
     private var alarmPreferences by mutableStateOf(
@@ -120,8 +121,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
+            HistoryLoadingTestHook.beforeInitialRoomCollection(applicationContext)
             database.occurrenceDao().observeHistory().collectLatest { occurrences ->
                 history = occurrences.map(HistoryOccurrence::toHistoryItem)
+                HistoryLoadingTestHook.markInitialRoomEmission(applicationContext)
             }
         }
         setContent {
@@ -555,6 +558,58 @@ internal object MedicationListLoadingTestHook {
             while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
                 if (!file(context, ACTIVE).exists()) return@withContext
                 check(SystemClock.elapsedRealtime() < deadline) { "M11 test hook was not released" }
+                delay(10)
+            }
+        }
+    }
+
+    fun markInitialRoomEmission(context: Context) {
+        if (file(context, ACTIVE).exists()) touch(context, FIRST_ROOM_EMISSION)
+    }
+
+    private fun touch(context: Context, key: String) {
+        directory(context).mkdirs()
+        file(context, key).writeText("")
+    }
+
+    private fun directory(context: Context) = File(context.applicationContext.filesDir, DIRECTORY)
+    private fun file(context: Context, key: String) = File(directory(context), key)
+}
+
+/** Narrow M12 test control for the initial real History Room Flow collection. */
+internal object HistoryLoadingTestHook {
+    private const val DIRECTORY = "m12-history-loading-test-hook"
+    private const val ACTIVE = "active"
+    private const val HOLD_BEFORE_COLLECTION = "hold-before-collection"
+    private const val BEFORE_COLLECTION_REACHED = "before-collection-reached"
+    private const val FIRST_ROOM_EMISSION = "first-room-emission"
+    private const val HOLD_TIMEOUT_MILLIS = 15_000L
+
+    fun configure(context: Context, holdBeforeCollection: Boolean = false) {
+        reset(context)
+        directory(context).mkdirs()
+        touch(context, ACTIVE)
+        if (holdBeforeCollection) touch(context, HOLD_BEFORE_COLLECTION)
+    }
+
+    fun reset(context: Context) { directory(context).deleteRecursively() }
+    fun releaseCollection(context: Context) {
+        val holdFile = file(context, HOLD_BEFORE_COLLECTION)
+        check(!holdFile.exists() || holdFile.delete()) { "M12 test hook release could not clear its hold" }
+    }
+    fun beforeCollectionReached(context: Context): Boolean =
+        file(context, BEFORE_COLLECTION_REACHED).exists()
+    fun firstRoomEmissionReceived(context: Context): Boolean = file(context, FIRST_ROOM_EMISSION).exists()
+
+    suspend fun beforeInitialRoomCollection(context: Context) {
+        if (!file(context, ACTIVE).exists()) return
+        withContext(Dispatchers.IO) {
+            touch(context, BEFORE_COLLECTION_REACHED)
+            if (!file(context, HOLD_BEFORE_COLLECTION).exists()) return@withContext
+            val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+            while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                if (!file(context, ACTIVE).exists()) return@withContext
+                check(SystemClock.elapsedRealtime() < deadline) { "M12 test hook was not released" }
                 delay(10)
             }
         }

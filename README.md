@@ -1,4 +1,4 @@
-# Meds Reminder M11
+# Meds Reminder M12
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,14 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+The History screen now distinguishes the interval before this Activity receives its first real
+Room History Flow emission from a confirmed empty History collection. `Loading history…` is shown
+until that emission; `No history yet` is reserved for an authoritative empty result. This is
+transient Activity presentation state only, so a recreated Activity intentionally waits for its
+own fresh History emission. History remains Room-authoritative and factual; the M11 medication-list
+loading behavior is unchanged.
 
 The main medication screen now distinguishes the interval before the Activity receives its first
 authoritative Room medication Flow emission from a confirmed empty collection. Before M11, the

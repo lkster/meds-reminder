@@ -59,7 +59,7 @@ internal fun historyLocalDateTime(
 
 @Composable
 fun HistoryScreen(
-    history: List<HistoryItem>,
+    history: List<HistoryItem>?,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -77,8 +77,9 @@ fun HistoryScreen(
                 TextButton(onClick = onBack) { Text("Back") }
             }
         }
-        if (history.isEmpty()) {
-            item {
+        when {
+            history == null -> item { Text("Loading history…") }
+            history.isEmpty() -> item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("No history yet", style = MaterialTheme.typography.titleLarge)
                     Text(
@@ -87,8 +88,7 @@ fun HistoryScreen(
                     )
                 }
             }
-        } else {
-            items(history, key = HistoryItem::id) { item ->
+            else -> items(history, key = HistoryItem::id) { item ->
                 HistoryCard(item)
             }
         }
