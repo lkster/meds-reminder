@@ -102,7 +102,7 @@ data class CapabilityItem(
 
 @Composable
 fun MedicationListScreen(
-    medications: List<MedicationWithTimes>,
+    medications: List<MedicationWithTimes>?,
     capabilityItems: List<CapabilityItem>,
     alarmSoundLabel: String,
     vibrationEnabled: Boolean,
@@ -173,8 +173,11 @@ fun MedicationListScreen(
                 }
             }
         }
-        if (medications.isEmpty()) Text("No medications yet.")
-        medications.forEach { item ->
+        when {
+            medications == null -> Text("Loading medications…")
+            medications.isEmpty() -> Text("No medications yet.")
+        }
+        medications?.forEach { item ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(

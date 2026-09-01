@@ -39,6 +39,66 @@ class MedicationScreensTest {
     val compose = createComposeRule()
 
     @Test
+    fun loadingMedicationCollectionShowsLoadingAndKeepsAddAvailable() {
+        var addClicks = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = null,
+                    capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default",
+                    vibrationEnabled = true,
+                    snoozeMinutes = 5,
+                    showSamsungGuidance = false,
+                    onSamsungSettings = {},
+                    onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {},
+                    onHistory = {},
+                    onAdd = { addClicks++ },
+                    onEdit = {},
+                    onToggle = { _, _ -> },
+                    onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Loading medications…").assertExists()
+        compose.onNodeWithText("No medications yet.").assertDoesNotExist()
+        compose.onNodeWithText("Medicine").assertDoesNotExist()
+        compose.onNodeWithText("Add medication").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, addClicks) }
+    }
+
+    @Test
+    fun emptyMedicationCollectionShowsConfirmedEmptyState() {
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(),
+                    capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default",
+                    vibrationEnabled = true,
+                    snoozeMinutes = 5,
+                    showSamsungGuidance = false,
+                    onSamsungSettings = {},
+                    onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {},
+                    onSnoozeMinutesChange = {},
+                    onHistory = {},
+                    onAdd = {},
+                    onEdit = {},
+                    onToggle = { _, _ -> },
+                    onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("No medications yet.").assertExists()
+        compose.onNodeWithText("Loading medications…").assertDoesNotExist()
+    }
+
+    @Test
     fun alarmReadinessShowsRequiredIssuesBeforeCrudAndKeepsActionsAvailable() {
         var addClicks = 0
         var historyClicks = 0
@@ -185,6 +245,8 @@ class MedicationScreensTest {
         }
 
         compose.onNode(hasText("Mon Wed Fri", substring = true)).assertExists()
+        compose.onNodeWithText("Loading medications…").assertDoesNotExist()
+        compose.onNodeWithText("No medications yet.").assertDoesNotExist()
     }
 
     @Test
