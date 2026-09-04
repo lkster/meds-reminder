@@ -2,6 +2,7 @@ package com.example.medsreminder
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -30,7 +31,9 @@ import com.example.medsreminder.data.OccurrenceDetails
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,12 +47,17 @@ class AlarmActivity : ComponentActivity() {
         setTurnScreenOn(true)
 
         lifecycleScope.launch {
+            AlarmActivityLoadingTestHook.beforeInitialRoomCollection(applicationContext)
             AppDatabase.get(this@AlarmActivity).occurrenceDao()
                 .observeCurrentRinging()
                 .collectLatest { occurrence ->
+                    AlarmActivityLoadingTestHook.markInitialRoomEmission(applicationContext)
                     withContext(Dispatchers.Main) {
-                        currentOccurrence = occurrence
-                        if (occurrence == null) finishAndRemoveTask()
+                        if (occurrence == null) {
+                            finishAndRemoveTask()
+                        } else {
+                            currentOccurrence = occurrence
+                        }
                     }
                 }
         }
@@ -74,7 +82,23 @@ class AlarmActivity : ComponentActivity() {
         BackHandler {
             // The alarm must be resolved with an explicit action.
         }
-        val current = occurrence ?: return
+        val current = occurrence
+        if (current == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "Loading alarm…",
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            return
+        }
         val scheduledTime = TIME_FORMATTER.format(
             Instant.ofEpochMilli(current.scheduledAtEpochMillis).atZone(ZoneId.systemDefault()),
         )
@@ -135,4 +159,62 @@ class AlarmActivity : ComponentActivity() {
     companion object {
         private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
     }
+}
+
+/** Narrow M14 test control for the initial real current-ringing Room Flow collection. */
+internal object AlarmActivityLoadingTestHook {
+    private const val DIRECTORY = "m14-alarm-activity-loading-test-hook"
+    private const val ACTIVE = "active"
+    private const val HOLD_BEFORE_COLLECTION = "hold-before-collection"
+    private const val BEFORE_COLLECTION_REACHED = "before-collection-reached"
+    private const val FIRST_ROOM_EMISSION = "first-room-emission"
+    private const val HOLD_TIMEOUT_MILLIS = 15_000L
+
+    fun configure(context: android.content.Context, holdBeforeCollection: Boolean = false) {
+        reset(context)
+        directory(context).mkdirs()
+        touch(context, ACTIVE)
+        if (holdBeforeCollection) touch(context, HOLD_BEFORE_COLLECTION)
+    }
+
+    fun reset(context: android.content.Context) { directory(context).deleteRecursively() }
+
+    fun releaseCollection(context: android.content.Context) {
+        val holdFile = file(context, HOLD_BEFORE_COLLECTION)
+        check(!holdFile.exists() || holdFile.delete()) { "M14 test hook release could not clear its hold" }
+    }
+
+    fun beforeCollectionReached(context: android.content.Context): Boolean =
+        file(context, BEFORE_COLLECTION_REACHED).exists()
+
+    fun firstRoomEmissionReceived(context: android.content.Context): Boolean =
+        file(context, FIRST_ROOM_EMISSION).exists()
+
+    suspend fun beforeInitialRoomCollection(context: android.content.Context) {
+        if (!file(context, ACTIVE).exists()) return
+        withContext(Dispatchers.IO) {
+            touch(context, BEFORE_COLLECTION_REACHED)
+            if (!file(context, HOLD_BEFORE_COLLECTION).exists()) return@withContext
+            val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+            while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                if (!file(context, ACTIVE).exists()) return@withContext
+                check(SystemClock.elapsedRealtime() < deadline) { "M14 test hook was not released" }
+                delay(10)
+            }
+        }
+    }
+
+    fun markInitialRoomEmission(context: android.content.Context) {
+        if (file(context, ACTIVE).exists()) touch(context, FIRST_ROOM_EMISSION)
+    }
+
+    private fun touch(context: android.content.Context, key: String) {
+        directory(context).mkdirs()
+        file(context, key).writeText("")
+    }
+
+    private fun directory(context: android.content.Context) =
+        File(context.applicationContext.filesDir, DIRECTORY)
+
+    private fun file(context: android.content.Context, key: String) = File(directory(context), key)
 }
