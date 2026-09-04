@@ -13,13 +13,19 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -410,7 +416,7 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn()
+        compose.onNodeWithContentDescription("Medication 1, Medicine, reminders").assertIsOn()
         compose.onNodeWithContentDescription("Vibration").assertIsOff()
     }
 
@@ -441,7 +447,7 @@ class MedicationScreensTest {
         }
 
         compose.onNodeWithContentDescription(
-            "Enable Medicine reminders",
+            "Medication 1, Medicine, reminders",
             useUnmergedTree = true,
         ).assertHasClickAction().assertIsOn().performClick()
 
@@ -465,6 +471,84 @@ class MedicationScreensTest {
         }
 
         compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn()
+    }
+
+    @Test
+    fun duplicateMedicationControlsHaveDistinctContextAndReachCorrectCallbacks() {
+        val first = persistedMedication(id = 1L, name = "Medicine", mask = WeekdayMask.ALL)
+        val second = persistedMedication(id = 2L, name = "Medicine", mask = WeekdayMask.ALL)
+        var editedId: Long? = null
+        var deletedId: Long? = null
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(first, second), capabilityItems = emptyList(),
+                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
+                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
+                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                    onEdit = { editedId = it.medication.id }, onToggle = { _, _ -> },
+                    onDelete = { deletedId = it },
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Medication 1, Medicine, reminders", true)
+            .assertHasClickAction().assertIsOn()
+        compose.onNodeWithContentDescription("Medication 2, Medicine, reminders", true)
+            .assertHasClickAction().assertIsOn()
+        compose.onNodeWithContentDescription("Edit medication 1, Medicine").assertHasClickAction()
+        compose.onNodeWithContentDescription("Edit medication 2, Medicine").assertHasClickAction()
+            .performScrollTo().performTouchInput { click() }
+        compose.runOnIdle { assertEquals(2L, editedId) }
+
+        compose.onNodeWithContentDescription("Delete medication 1, Medicine").assertHasClickAction()
+        compose.onNodeWithContentDescription("Delete medication 2, Medicine").performScrollTo().performTouchInput { click() }
+        compose.onNodeWithText("Delete Medicine?").assertExists()
+        compose.onNode(
+            hasText("Delete") and hasClickAction() and hasAnyAncestor(isDialog()),
+        ).performClick()
+        compose.runOnIdle { assertEquals(2L, deletedId) }
+    }
+
+    @Test
+    fun duplicateReminderTimesHaveDistinctAccessibleControlsAndWeekdayContext() {
+        var draft by mutableStateOf(
+            draftWith(
+                EditorTime(id = 11L, minuteOfDay = 8 * 60),
+                EditorTime(id = 12L, minuteOfDay = 8 * 60),
+            ),
+        )
+        compose.setContent {
+            MaterialTheme { MedicationEditorScreen(draft, { draft = it }, {}, {}) }
+        }
+
+        compose.onNodeWithContentDescription("Change reminder 1 time, currently 08:00", true).assertHasClickAction()
+        compose.onNodeWithContentDescription("Change reminder 2 time, currently 08:00", true).assertHasClickAction()
+        compose.onNodeWithContentDescription("Remove reminder 1 at 08:00", true).assertHasClickAction()
+        compose.onNodeWithContentDescription("Remove reminder 2 at 08:00", true).assertHasClickAction().performClick()
+        compose.runOnIdle { assertEquals(11L, draft.times.single().id) }
+    }
+
+    @Test
+    fun weekdayChipsExposeReminderContextFullNamesAndPreserveSelection() {
+        var draft by mutableStateOf(
+            draftWith(
+                EditorTime(id = 11L, minuteOfDay = 8 * 60),
+                EditorTime(id = 12L, minuteOfDay = 20 * 60),
+            ),
+        )
+        compose.setContent {
+            MaterialTheme { MedicationEditorScreen(draft, { draft = it }, {}, {}) }
+        }
+
+        compose.onNodeWithContentDescription("Reminder 1 at 08:00, Every day", true).assertIsSelected()
+        compose.onNodeWithContentDescription("Reminder 1 at 08:00, Monday", true).assertIsSelected().performClick()
+        compose.onNodeWithContentDescription("Reminder 2 at 20:00, Every day", true).assertIsSelected()
+        compose.onNodeWithContentDescription("Reminder 2 at 20:00, Monday", true).assertIsSelected()
+        compose.runOnIdle {
+            assertEquals(WeekdayMask.ALL xor MONDAY, draft.times[0].weekdayMask)
+            assertEquals(WeekdayMask.ALL, draft.times[1].weekdayMask)
+        }
     }
 
     @Test
@@ -513,17 +597,21 @@ class MedicationScreensTest {
         times = times.toList(),
     )
 
-    private fun persistedMedication(mask: Int) = MedicationWithTimes(
+    private fun persistedMedication(
+        mask: Int,
+        id: Long = 1L,
+        name: String = "Medicine",
+    ) = MedicationWithTimes(
         medication = MedicationEntity(
-            id = 1L,
-            name = "Medicine",
+            id = id,
+            name = name,
             instructions = null,
             enabled = true,
         ),
         reminderTimes = listOf(
             ReminderTimeEntity(
-                id = 11L,
-                medicationId = 1L,
+                id = id * 10 + 1,
+                medicationId = id,
                 minuteOfDay = 8 * 60,
                 weekdayMask = mask,
             ),

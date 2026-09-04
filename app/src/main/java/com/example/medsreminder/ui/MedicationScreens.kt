@@ -177,7 +177,8 @@ fun MedicationListScreen(
             medications == null -> Text("Loading medications…")
             medications.isEmpty() -> Text("No medications yet.")
         }
-        medications?.forEach { item ->
+        medications?.forEachIndexed { index, item ->
+            val medicationNumber = index + 1
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -190,7 +191,7 @@ fun MedicationListScreen(
                             checked = item.medication.enabled,
                             onCheckedChange = { onToggle(item, it) },
                             modifier = Modifier.semantics {
-                                contentDescription = "Enable ${item.medication.name} reminders"
+                                contentDescription = "Medication $medicationNumber, ${item.medication.name}, reminders"
                             },
                         )
                     }
@@ -199,11 +200,21 @@ fun MedicationListScreen(
                         Text("${formatMinute(reminder.minuteOfDay)} — ${formatWeekdays(reminder.weekdayMask)}")
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onEdit(item) }) { Text("Edit") }
-                        TextButton(onClick = {
-                            deleteCandidateId = item.medication.id
-                            deleteCandidateName = item.medication.name
-                        }) { Text("Delete") }
+                        OutlinedButton(
+                            onClick = { onEdit(item) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Edit medication $medicationNumber, ${item.medication.name}"
+                            },
+                        ) { Text("Edit") }
+                        TextButton(
+                            onClick = {
+                                deleteCandidateId = item.medication.id
+                                deleteCandidateName = item.medication.name
+                            },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Delete medication $medicationNumber, ${item.medication.name}"
+                            },
+                        ) { Text("Delete") }
                     }
                 }
             }
@@ -339,32 +350,51 @@ fun MedicationEditorScreen(
             )
         }
         draft.times.forEachIndexed { index, time ->
+            val reminderNumber = index + 1
+            val reminderTime = formatMinute(time.minuteOfDay)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(enabled = !mutationLocked, onClick = {
-                            TimePickerDialog(
-                                context,
-                                { _, hour, minute ->
-                                    val changed = draft.times.toMutableList()
-                                    changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
-                                    onDraftChange(draft.copy(times = changed))
-                                },
-                                time.minuteOfDay / 60,
-                                time.minuteOfDay % 60,
-                                true,
-                            ).show()
-                        }) { Text(formatMinute(time.minuteOfDay)) }
+                        OutlinedButton(
+                            enabled = !mutationLocked,
+                            onClick = {
+                                TimePickerDialog(
+                                    context,
+                                    { _, hour, minute ->
+                                        val changed = draft.times.toMutableList()
+                                        changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
+                                        onDraftChange(draft.copy(times = changed))
+                                    },
+                                    time.minuteOfDay / 60,
+                                    time.minuteOfDay % 60,
+                                    true,
+                                ).show()
+                            },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Change reminder $reminderNumber time, currently $reminderTime"
+                            },
+                        ) { Text(reminderTime) }
                         if (draft.times.size > 1) {
-                            TextButton(enabled = !mutationLocked, onClick = {
-                                onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
-                            }) { Text("Remove") }
+                            TextButton(
+                                enabled = !mutationLocked,
+                                onClick = {
+                                    onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
+                                },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Remove reminder $reminderNumber at $reminderTime"
+                                },
+                            ) { Text("Remove") }
                         }
                     }
-                    WeekdaySelector(time.weekdayMask, enabled = !mutationLocked) { weekdayMask ->
+                    WeekdaySelector(
+                        weekdayMask = time.weekdayMask,
+                        reminderNumber = reminderNumber,
+                        reminderTime = reminderTime,
+                        enabled = !mutationLocked,
+                    ) { weekdayMask ->
                         val changed = draft.times.toMutableList()
                         changed[index] = time.copy(weekdayMask = weekdayMask)
                         onDraftChange(draft.copy(times = changed))
@@ -436,11 +466,20 @@ private fun formatMinute(minuteOfDay: Int): String =
     TIME_FORMATTER.format(LocalTime.of(minuteOfDay / 60, minuteOfDay % 60))
 
 @Composable
-private fun WeekdaySelector(weekdayMask: Int, enabled: Boolean, onChange: (Int) -> Unit) {
+private fun WeekdaySelector(
+    weekdayMask: Int,
+    reminderNumber: Int,
+    reminderTime: String,
+    enabled: Boolean,
+    onChange: (Int) -> Unit,
+) {
     FilterChip(
         selected = weekdayMask == WeekdayMask.ALL,
         onClick = { onChange(WeekdayMask.ALL) },
         enabled = enabled,
+        modifier = Modifier.semantics {
+            contentDescription = "Reminder $reminderNumber at $reminderTime, Every day"
+        },
         label = { Text("Every day") },
     )
     DAY_ROWS.forEach { days ->
@@ -451,6 +490,9 @@ private fun WeekdaySelector(weekdayMask: Int, enabled: Boolean, onChange: (Int) 
                     selected = weekdayMask and bit != 0,
                     onClick = { onChange(weekdayMask xor bit) },
                     enabled = enabled,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Reminder $reminderNumber at $reminderTime, ${fullDayName(day)}"
+                    },
                     label = { Text(dayLabel(day)) },
                 )
             }
@@ -473,6 +515,16 @@ private fun dayLabel(day: DayOfWeek): String = when (day) {
     DayOfWeek.FRIDAY -> "Fri"
     DayOfWeek.SATURDAY -> "Sat"
     DayOfWeek.SUNDAY -> "Sun"
+}
+
+private fun fullDayName(day: DayOfWeek): String = when (day) {
+    DayOfWeek.MONDAY -> "Monday"
+    DayOfWeek.TUESDAY -> "Tuesday"
+    DayOfWeek.WEDNESDAY -> "Wednesday"
+    DayOfWeek.THURSDAY -> "Thursday"
+    DayOfWeek.FRIDAY -> "Friday"
+    DayOfWeek.SATURDAY -> "Saturday"
+    DayOfWeek.SUNDAY -> "Sunday"
 }
 
 private val DAY_ROWS = listOf(

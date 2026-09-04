@@ -69,7 +69,7 @@ class MainActivityMedicationToggleLifecycleTest {
             assertEquals(1, MedicationListToggleTestHook.phaseBCalls(targetContext))
             compose.waitForIdle()
             compose.onNodeWithContentDescription(
-                "Enable Lifecycle medicine reminders",
+                "Medication 1, Lifecycle medicine, reminders",
                 useUnmergedTree = true,
             ).assertIsOff()
         } finally {
@@ -157,7 +157,7 @@ class MainActivityMedicationToggleLifecycleTest {
     private fun toggleOff() {
         compose.waitForIdle()
         compose.onNodeWithContentDescription(
-            "Enable Lifecycle medicine reminders",
+            "Medication 1, Lifecycle medicine, reminders",
             useUnmergedTree = true,
         )
             .performScrollTo()
@@ -180,11 +180,11 @@ class MainActivityMedicationToggleLifecycleTest {
             )
         }
         compose.onAllNodesWithContentDescription(
-            "Enable Lifecycle medicine reminders",
+            "Medication 1, Lifecycle medicine, reminders",
             useUnmergedTree = true,
         ).assertCountEquals(1)
         compose.onNodeWithContentDescription(
-            "Enable Lifecycle medicine reminders",
+            "Medication 1, Lifecycle medicine, reminders",
             useUnmergedTree = true,
         )
             .assertHasClickAction()
