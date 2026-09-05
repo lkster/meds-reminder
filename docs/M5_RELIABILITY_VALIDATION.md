@@ -4,8 +4,11 @@ Status: **M5 is technically complete.** JVM/Robolectric and connected Android te
 gates, and `git diff --check` passed; implementation/diff review was accepted. The external
 non-force-stop emulator process-death check also passed on 2026-08-24.
 
-Samsung Galaxy S23 physical validation has **NOT YET PHYSICALLY EXECUTED**. It is explicitly
-deferred to final physical-device / user-acceptance validation and is not an M5 blocker.
+**M15 physical validation complete (2026-09-05).** All four required scenarios passed on a Samsung
+Galaxy S23 (SM-S911B), Android 16 / API 36 / One UI build 80500, using commit
+`2c039ea1855573c79449c55cc0eee91a816fcb9f` and application `versionName` `0.15-m14` /
+`versionCode` `2`. This records one physical-device/software context only; it does not guarantee
+behavior across Samsung models, firmware, or Android/One UI versions.
 
 ## Recovery contract
 
@@ -72,20 +75,16 @@ into a stopped state and suppresses the restart semantics under test.
 An explicit user/system force-stop is a separate behavior: no sticky restart is expected while the
 package remains stopped. Record it separately and do not report it as a sticky-recovery failure.
 
-## Deferred final physical-device / user-acceptance backlog: Samsung Galaxy S23
+## Completed physical-device / user-acceptance validation: Samsung Galaxy S23
 
-Run on the physical S23 with the app's notification permission granted, the medication alarm
-channel at high importance, exact-alarm access granted, and Samsung pop-up style set to Detailed
-unless the step intentionally varies a capability. Emulator evidence does not replace these checks,
-but they are not required for individual milestones during active incremental development.
-
-Prefer automated validation during active incremental development. Concentrate physical-device
-regression testing near final application acceptance; perform an isolated manual check earlier only
-when it is necessary to resolve a concrete implementation decision.
+The run used the physical S23 with notification permission and exact-alarm access enabled, full-screen
+alarm access enabled for the lockscreen case, and Samsung pop-up style set to Detailed. Emulator
+evidence did not substitute for the following user-confirmed observations.
 
 ### 1. Custom ringtone real playback
 
-Status/result: **DEFERRED — final physical-device / user-acceptance validation; NOT YET PHYSICALLY EXECUTED**.
+Status/result: **PASS — 2026-09-05.** The user selected the non-default `The Voyage` ringtone,
+confirmed that it was audibly played, and confirmed that sound stopped immediately after Taken.
 
 1. In the app, choose a non-default system alarm sound with a clearly distinguishable tone.
 2. Create a near-future medication alarm and leave the app.
@@ -99,7 +98,8 @@ then expected.
 
 ### 2. Vibration OFF
 
-Status/result: **DEFERRED — final physical-device / user-acceptance validation; NOT YET PHYSICALLY EXECUTED**.
+Status/result: **PASS — 2026-09-05.** With vibration OFF, the user confirmed audible alarm playback,
+no repeating alarm vibration, and normal output stop after Taken.
 
 1. Turn vibration OFF in the app and leave sound enabled with an audible alarm tone.
 2. Create a near-future alarm, place the phone on a surface where vibration is observable, and let
@@ -114,7 +114,10 @@ sound and vibration disabled.
 
 ### 3. FSI, secure lock screen, and return task
 
-Status/result: **DEFERRED — final physical-device / user-acceptance validation; NOT YET PHYSICALLY EXECUTED**.
+Status/result: **PASS — 2026-09-05.** The user confirmed screen wake and alarm presentation over the
+secure lockscreen; medication details and Taken/Snooze/Skip controls; one alarm session; output and
+Activity cleanup after Taken; natural return to the secure lockscreen; retention of the prior app
+after unlock; and no unexpected MainActivity launch.
 
 1. Allow the app's full-screen alarm access where the installed Android/One UI version exposes it.
 2. Open another foreground app, lock the device securely, and turn the screen off.
@@ -133,7 +136,10 @@ notification degradation, not a fifth mandatory gate.
 
 ### 4. Selected ringtone persistence after reboot/unlock
 
-Status/result: **DEFERRED — final physical-device / user-acceptance validation; NOT YET PHYSICALLY EXECUTED**.
+Status/result: **PASS — 2026-09-05.** After a normal reboot and first unlock, the user confirmed
+that `The Voyage` remained selected, a later future medication alarm audibly played that same tone,
+and the alarm stopped normally after Taken. This validates post-unlock behavior only; it does not
+validate an alarm that became due while the device was off or before first unlock.
 
 1. Select a non-default system alarm sound and confirm its label remains selected.
 2. Ensure a medication has a future alarm after the planned reboot/unlock time.

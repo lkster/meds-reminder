@@ -10,15 +10,23 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
 
 A fresh or recreated `AlarmActivity` now shows `Loading alarm…` until its own real
 `observeCurrentRinging()` Room emission identifies the persisted ringing owner. This transient,
 non-actionable state contains no medication details or Taken, Snooze, or Skip actions. An
 authoritative null result closes the ringing Activity, and a previously displayed occurrence is
 not replaced with loading copy while the task is being removed. Room and its persisted ringing
-queue remain authoritative; M5 recovery, M13 semantics, the Direct Boot limitation, and deferred
-Samsung physical validation are unchanged.
+queue remain authoritative; M5 recovery, M13 semantics, and the Direct Boot limitation are unchanged.
+
+M15 is a validation-only milestone: the physically validated application remains
+`versionName` `0.15-m14` / `versionCode` `2`. On 2026-09-05, the four required alarm checks passed
+on a Samsung Galaxy S23 running Android 16 (API 36; One UI build 80500): selected custom-ringtone
+playback and immediate resolution cleanup, vibration OFF, secure-lockscreen full-screen presentation
+and return-task behavior, and selected-ringtone persistence/playback after reboot and first unlock.
+This is one tested S23/software context, not a universal Samsung/OEM guarantee. Details, including
+the post-unlock-only reboot scope and Direct Boot limitation, are in
+[`docs/M5_RELIABILITY_VALIDATION.md`](docs/M5_RELIABILITY_VALIDATION.md).
 
 Repeated medication-list actions now expose medication-specific accessibility descriptions using
 their current display position and name. Repeated reminder-editor controls similarly expose their
@@ -105,8 +113,7 @@ Restoration is not promised after force-stop, app-data clearing, or deliberate t
 Editor Save explicitly separates the Room transaction from alarm completion. Once Room returns a
 `MedicationScheduleEditResult`, the medication is saved even if cancellation/reconciliation/ringing
 synchronization still needs retrying. That retry uses the retained result and never repeats a new
-medication insert. Room remains schema version 2. The existing Samsung physical-validation backlog
-remains deferred.
+medication insert. Room remains schema version 2.
 
 ## Factual medication history
 
@@ -222,16 +229,8 @@ Targeted emulator validation should cover CRUD, weekday edits, preference persis
 grace-valid delivery, edit/disable/delete cancellation, reboot reconciliation, configurable Snooze,
 queue advancement, resource cleanup, and factual history rendering.
 
-The following Samsung Galaxy S23 checks are deferred to final physical-device / user-acceptance
-validation and have not yet been physically executed; they are not individual M5 completion gates:
-
-- custom ringtone playback;
-- vibration OFF;
-- FSI/lockscreen regression;
-- selected ringtone persistence after reboot.
-
-See [`docs/M5_RELIABILITY_VALIDATION.md`](docs/M5_RELIABILITY_VALIDATION.md) for the exact Samsung
-procedures, deferred-result placeholders, and the passing non-force-stop emulator process-death
-validation. During active incremental development, automated validation is preferred; perform an
-isolated physical-device check earlier only when required to resolve a concrete implementation
-decision.
+The four Samsung Galaxy S23 physical acceptance checks were completed in M15: custom ringtone
+playback, vibration OFF, FSI/secure-lockscreen/return-task behavior, and selected-ringtone
+persistence after reboot and first unlock. See
+[`docs/M5_RELIABILITY_VALIDATION.md`](docs/M5_RELIABILITY_VALIDATION.md) for the physical evidence,
+preconditions, post-unlock scope, and the passing non-force-stop emulator process-death validation.
