@@ -16,6 +16,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.HistoryOccurrence
 import com.example.medsreminder.data.OccurrenceKind
@@ -64,7 +66,7 @@ fun HistoryScreen(
 ) {
     BackHandler(onBack = onBack)
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier.fillMaxSize().padding(20.dp).semantics { paneTitle = "History" },
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {

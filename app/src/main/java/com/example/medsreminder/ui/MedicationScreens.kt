@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
@@ -128,7 +129,9 @@ fun MedicationListScreen(
         deleteCandidateName = null
     }
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).semantics {
+            paneTitle = "Meds Reminder"
+        },
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(
@@ -300,16 +303,16 @@ fun MedicationEditorScreen(
     val context = LocalContext.current
     val validation = draft.editorValidation
     val mutationLocked = saveState.locksDraft
+    val screenTitle = if (draft.id == null) "Add medication" else "Edit medication"
     // Consume Back while work is owned by the retained ViewModel so it cannot be abandoned.
     if (handleSystemBack) BackHandler { if (!mutationLocked) onCancel() }
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).semantics {
+            paneTitle = screenTitle
+        },
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            if (draft.id == null) "Add medication" else "Edit medication",
-            style = MaterialTheme.typography.headlineMedium,
-        )
+        Text(screenTitle, style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(
             value = draft.name,
             onValueChange = { onDraftChange(draft.copy(name = it)) },
