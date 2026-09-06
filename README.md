@@ -1,4 +1,4 @@
-# Meds Reminder M14
+# Meds Reminder M16
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,12 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+Active Room-authoritative alarm content now scrolls vertically when valid medication content exceeds
+the viewport, keeping Taken, Snooze, and Skip reachable without truncating instructions. Fitting
+content remains centered. M14 loading/null handling and Room queue ownership remain unchanged; no
+alarm delivery, scheduling, persistence, task, service, or Direct Boot behavior changed.
 
 A fresh or recreated `AlarmActivity` now shows `Loading alarm…` until its own real
 `observeCurrentRinging()` Room emission identifies the persisted ringing owner. This transient,

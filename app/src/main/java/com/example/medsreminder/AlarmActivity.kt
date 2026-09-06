@@ -6,6 +6,8 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,55 +102,59 @@ class AlarmActivity : ComponentActivity() {
             }
             return
         }
-        val scheduledTime = TIME_FORMATTER.format(
-            Instant.ofEpochMilli(current.scheduledAtEpochMillis).atZone(ZoneId.systemDefault()),
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                current.medicationName,
-                style = MaterialTheme.typography.displaySmall,
-                textAlign = TextAlign.Center,
+        key(current.occurrenceId) {
+            val scrollState = rememberScrollState()
+            val scheduledTime = TIME_FORMATTER.format(
+                Instant.ofEpochMilli(current.scheduledAtEpochMillis).atZone(ZoneId.systemDefault()),
             )
-            current.instructions?.let {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    it,
-                    modifier = Modifier.padding(top = 12.dp),
-                    style = MaterialTheme.typography.titleLarge,
+                    current.medicationName,
+                    style = MaterialTheme.typography.displaySmall,
                     textAlign = TextAlign.Center,
                 )
-            }
-            Text(
-                "Scheduled for $scheduledTime",
-                modifier = Modifier.padding(top = 12.dp, bottom = 32.dp),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Button(
-                onClick = { resolve(AlarmActionReceiver.ACTION_TAKEN, current.occurrenceId) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Taken")
-            }
-            Button(
-                onClick = { resolve(AlarmActionReceiver.ACTION_SNOOZE, current.occurrenceId) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Text("Snooze")
-            }
-            OutlinedButton(
-                onClick = { resolve(AlarmActionReceiver.ACTION_SKIP, current.occurrenceId) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Text("Skip")
+                current.instructions?.let {
+                    Text(
+                        it,
+                        modifier = Modifier.padding(top = 12.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                Text(
+                    "Scheduled for $scheduledTime",
+                    modifier = Modifier.padding(top = 12.dp, bottom = 32.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Button(
+                    onClick = { resolve(AlarmActionReceiver.ACTION_TAKEN, current.occurrenceId) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Taken")
+                }
+                Button(
+                    onClick = { resolve(AlarmActionReceiver.ACTION_SNOOZE, current.occurrenceId) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                ) {
+                    Text("Snooze")
+                }
+                OutlinedButton(
+                    onClick = { resolve(AlarmActionReceiver.ACTION_SKIP, current.occurrenceId) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                ) {
+                    Text("Skip")
+                }
             }
         }
     }
