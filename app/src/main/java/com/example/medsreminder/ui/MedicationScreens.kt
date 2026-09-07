@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import com.example.medsreminder.data.MedicationWithTimes
@@ -443,11 +445,13 @@ fun MedicationEditorScreen(
             is EditorSaveState.RoomFailure -> Text(
                 "Could not save: ${saveState.message}",
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             is EditorSaveState.PostCommitFailure -> {
                 Text(
                     "Medication was saved, but alarm updates need retry: ${saveState.message}",
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
                 Button(onClick = onRetryPostCommit, modifier = Modifier.fillMaxWidth()) {
                     Text("Retry alarm update")

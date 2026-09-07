@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -23,13 +24,17 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.medsreminder.data.MedicationEntity
+import com.example.medsreminder.data.MedicationScheduleEditResult
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.ReminderTimeEntity
 import com.example.medsreminder.data.WeekdayMask
@@ -392,6 +397,77 @@ class MedicationScreensTest {
     }
 
     @Test
+    fun roomFailureIsPoliteLiveRegionAndSaveRemainsRetryable() {
+        var saves = 0
+        val message = "Could not save: Room edit failed"
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)),
+                    onDraftChange = {},
+                    onSave = { saves++ },
+                    onCancel = {},
+                    saveState = EditorSaveState.RoomFailure("Room edit failed"),
+                )
+            }
+        }
+
+        compose.onAllNodesWithText(message).assertCountEquals(1)
+        compose.onNodeWithText(message)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        assertEquals(1, liveRegionNodeCount())
+        compose.onNodeWithText("Save").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, saves) }
+    }
+
+    @Test
+    fun postCommitFailureIsPoliteLiveRegionAndRetainsRetryAction() {
+        var retries = 0
+        val message = "Medication was saved, but alarm updates need retry: Alarm completion failed"
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)),
+                    onDraftChange = {},
+                    onSave = {},
+                    onCancel = {},
+                    saveState = EditorSaveState.PostCommitFailure(
+                        MedicationScheduleEditResult(1, emptyList(), false),
+                        "Alarm completion failed",
+                    ),
+                    onRetryPostCommit = { retries++ },
+                )
+            }
+        }
+
+        compose.onAllNodesWithText(message).assertCountEquals(1)
+        compose.onNodeWithText(message)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        assertEquals(1, liveRegionNodeCount())
+        compose.onNodeWithText("Retry alarm update").assertHasClickAction().performClick()
+        compose.onNodeWithText("Save").assertIsNotEnabled()
+        compose.onNodeWithText("Cancel").assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(1, retries) }
+    }
+
+    @Test
+    fun editorProgressStatesDoNotExposeLiveRegions() {
+        val draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60))
+        var saveState by mutableStateOf<EditorSaveState>(EditorSaveState.SavingRoom)
+        compose.setContent {
+            MaterialTheme { MedicationEditorScreen(draft, {}, {}, {}, saveState = saveState) }
+        }
+
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertDoesNotExist()
+        compose.runOnIdle {
+            saveState = EditorSaveState.CompletingAlarms(
+                MedicationScheduleEditResult(1, emptyList(), false),
+            )
+        }
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertDoesNotExist()
+    }
+
+    @Test
     fun switchesKeepToggleStateAndExposeContextualLabels() {
         val item = persistedMedication(WeekdayMask.ALL)
         compose.setContent {
@@ -617,6 +693,13 @@ class MedicationScreensTest {
             ),
         ),
     )
+
+    private fun liveRegionNodeCount(): Int =
+        compose.onRoot(useUnmergedTree = true).fetchSemanticsNode().countLiveRegionNodes()
+
+    private fun SemanticsNode.countLiveRegionNodes(): Int =
+        (if (config.contains(SemanticsProperties.LiveRegion)) 1 else 0) +
+            children.sumOf { it.countLiveRegionNodes() }
 
     companion object {
         private const val MONDAY = 0b0000001
