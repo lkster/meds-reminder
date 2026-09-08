@@ -194,10 +194,14 @@ fun MedicationListScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(item.medication.name, style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            item.medication.name,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
                         Switch(
                             checked = item.medication.enabled,
                             onCheckedChange = { onToggle(item, it) },

@@ -1,4 +1,4 @@
-# Meds Reminder M20
+# Meds Reminder M21
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,12 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M21 long medication-name card-header Switch reachability; M20 primary-title Heading semantics; M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+Medication-card headers now reserve horizontal space for the native enable/disable Switch. Valid long
+medication names wrap in the remaining width instead of competing with the Switch's layout allocation.
+The native Switch, M13 semantics, and stable-ID mutation behavior are unchanged; no Room, alarm,
+lifecycle, persistence, or navigation behavior changed.
 
 The primary visible title of each existing MainActivity pane is now exposed as a Compose accessibility
 Heading. M17 PaneTitle semantics remain independently preserved, and the alarm-readiness status remains

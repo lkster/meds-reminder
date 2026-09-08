@@ -121,6 +121,55 @@ class MedicationScreensTest {
     }
 
     @Test
+    fun medicationCardLongNameKeepsEnabledSwitchReachableAtNarrowWidth() {
+        val longName = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
+        val item = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = longName)
+        var toggled: Pair<MedicationWithTimes, Boolean>? = null
+
+        compose.setContent {
+            val currentPixelDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = currentPixelDensity,
+                    fontScale = 1.0f,
+                ),
+            ) {
+                MaterialTheme {
+                    Box(Modifier.width(360.dp).testTag("m21-medication-card-viewport")) {
+                        MedicationListScreen(
+                            medications = listOf(item), capabilityItems = emptyList(),
+                            alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
+                            showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
+                            onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                            onEdit = {}, onToggle = { medication, enabled -> toggled = medication to enabled },
+                            onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+
+        val switchNode = compose.onNodeWithContentDescription(
+            "Medication 1, $longName, reminders",
+            useUnmergedTree = true,
+        ).performScrollTo()
+        val viewportBounds = compose.onNodeWithTag("m21-medication-card-viewport").getUnclippedBoundsInRoot()
+        val nameBounds = compose.onNodeWithText(longName).getUnclippedBoundsInRoot()
+        val switchBounds = switchNode.getUnclippedBoundsInRoot()
+
+        switchNode.assertHasClickAction().assertIsOn()
+        assertTrue(switchBounds.left >= viewportBounds.left && switchBounds.right <= viewportBounds.right)
+        assertTrue(switchBounds.right - switchBounds.left >= 48.dp)
+        assertTrue(nameBounds.right <= switchBounds.left)
+
+        switchNode.performClick()
+        compose.runOnIdle {
+            assertEquals(item.medication.id, toggled?.first?.medication?.id)
+            assertEquals(false, toggled?.second)
+        }
+    }
+
+    @Test
     fun loadingMedicationCollectionShowsLoadingAndKeepsAddAvailable() {
         var addClicks = 0
         compose.setContent {
