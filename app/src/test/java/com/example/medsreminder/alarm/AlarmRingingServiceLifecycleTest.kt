@@ -306,7 +306,8 @@ class AlarmRingingServiceLifecycleTest {
         awaitServiceWork {
             runBlocking(Dispatchers.IO) {
                 database.occurrenceDao().get("a")?.status == OccurrenceStatus.TIMED_OUT &&
-                    database.occurrenceDao().get("b")?.presentedAtEpochMillis != null
+                    database.occurrenceDao().get("b")?.presentedAtEpochMillis != null &&
+                    service.activeOutputOccurrenceId == "b"
             }
         }
 

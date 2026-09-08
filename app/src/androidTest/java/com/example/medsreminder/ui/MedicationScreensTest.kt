@@ -1,9 +1,16 @@
 package com.example.medsreminder.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -28,6 +35,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -48,6 +57,68 @@ import org.junit.runner.RunWith
 class MedicationScreensTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun medicationListHeaderKeepsHistoryReachableWhenLargeTextForcesWrap() {
+        var testFontScale by mutableFloatStateOf(1.0f)
+        var historyClicks = 0
+
+        compose.setContent {
+            val currentPixelDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = currentPixelDensity,
+                    fontScale = testFontScale,
+                ),
+            ) {
+                MaterialTheme {
+                    Box(Modifier.width(360.dp).testTag("m19-medication-list-viewport")) {
+                        MedicationListScreen(
+                            medications = emptyList(),
+                            capabilityItems = emptyList(),
+                            alarmSoundLabel = "System default",
+                            vibrationEnabled = true,
+                            snoozeMinutes = 5,
+                            showSamsungGuidance = false,
+                            onSamsungSettings = {},
+                            onChooseAlarmSound = {},
+                            onVibrationEnabledChange = {},
+                            onSnoozeMinutesChange = {},
+                            onHistory = { historyClicks++ },
+                            onAdd = {},
+                            onEdit = {},
+                            onToggle = { _, _ -> },
+                            onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+
+        val viewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
+        val titleBounds = compose.onNodeWithText("Meds Reminder").getUnclippedBoundsInRoot()
+        val historyNode = compose.onNodeWithText("History")
+        val historyBounds = historyNode.getUnclippedBoundsInRoot()
+        assertEquals(360.dp, viewportBounds.right - viewportBounds.left)
+        historyNode.assertHasClickAction()
+        assertTrue(historyBounds.left >= viewportBounds.left && historyBounds.right <= viewportBounds.right)
+        assertTrue(titleBounds.top < historyBounds.bottom && historyBounds.top < titleBounds.bottom)
+
+        compose.runOnIdle { testFontScale = 2.0f }
+
+        val largeTextViewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
+        val largeTextTitleBounds = compose.onNodeWithText("Meds Reminder").getUnclippedBoundsInRoot()
+        val largeTextHistoryNode = compose.onNodeWithText("History")
+        val largeTextHistoryBounds = largeTextHistoryNode.getUnclippedBoundsInRoot()
+        largeTextHistoryNode.assertHasClickAction()
+        assertTrue(largeTextHistoryBounds.top >= largeTextTitleBounds.bottom)
+        assertTrue(
+            largeTextHistoryBounds.left >= largeTextViewportBounds.left &&
+                largeTextHistoryBounds.right <= largeTextViewportBounds.right,
+        )
+        largeTextHistoryNode.performClick()
+        compose.runOnIdle { assertEquals(1, historyClicks) }
+    }
 
     @Test
     fun loadingMedicationCollectionShowsLoadingAndKeepsAddAvailable() {
