@@ -281,8 +281,11 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)).assertExists()
         compose.onNodeWithText("Alarm setup needs attention").assertExists()
+        compose.onNode(
+            hasText("Alarm setup needs attention")
+                .and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)),
+        ).assertExists()
         compose.onNodeWithText("Required").assertExists()
         compose.onNodeWithText("Allow notifications").assertHasClickAction()
     }

@@ -143,7 +143,11 @@ fun MedicationListScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Meds Reminder", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Meds Reminder",
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             OutlinedButton(onClick = onHistory) { Text("History") }
         }
         AlarmReadinessSection(capabilityItems)
@@ -316,7 +320,11 @@ fun MedicationEditorScreen(
         },
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(screenTitle, style = MaterialTheme.typography.headlineMedium)
+        Text(
+            screenTitle,
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.headlineMedium,
+        )
         OutlinedTextField(
             value = draft.name,
             onValueChange = { onDraftChange(draft.copy(name = it)) },

@@ -3,6 +3,7 @@ package com.example.medsreminder
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -52,9 +53,11 @@ class MainActivityPaneSemanticsTest {
     fun mainActivityTransitionsExposeTheCurrentPaneTitle() {
         waitForMedication()
         assertPaneTitle("Meds Reminder")
+        assertTitleHeading("Meds Reminder")
 
         compose.onNodeWithText("Add medication").performClick()
         assertPaneTitle("Add medication")
+        assertTitleHeading("Add medication")
         assertPaneTitleAbsent("Meds Reminder")
         compose.onNodeWithText("Cancel").performClick()
 
@@ -63,15 +66,18 @@ class MainActivityPaneSemanticsTest {
             .performScrollTo()
             .performClick()
         assertPaneTitle("Edit medication")
+        assertTitleHeading("Edit medication")
         assertPaneTitleAbsent("Meds Reminder")
         compose.onNodeWithText("Cancel").performClick()
 
         assertPaneTitle("Meds Reminder")
         compose.onNodeWithText("History").performClick()
         assertPaneTitle("History")
+        assertTitleHeading("History")
         assertPaneTitleAbsent("Meds Reminder")
         compose.onNodeWithText("Back").performClick()
         assertPaneTitle("Meds Reminder")
+        assertTitleHeading("Meds Reminder")
     }
 
     private fun waitForMedication() {
@@ -86,5 +92,11 @@ class MainActivityPaneSemanticsTest {
 
     private fun assertPaneTitleAbsent(title: String) {
         compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, title)).assertDoesNotExist()
+    }
+
+    private fun assertTitleHeading(title: String) {
+        compose.onNode(
+            hasText(title).and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)),
+        ).assertExists()
     }
 }

@@ -1,4 +1,4 @@
-# Meds Reminder M19
+# Meds Reminder M20
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -11,6 +11,11 @@ and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Pre
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
 ## M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+The primary visible title of each existing MainActivity pane is now exposed as a Compose accessibility
+Heading. M17 PaneTitle semantics remain independently preserved, and the alarm-readiness status remains
+its existing section heading. Visible copy, layout, navigation, state, persistence, and alarm behavior
+are unchanged; M20 adds no live regions, focus movement, or accessibility-event dispatch.
 
 The medication-list top header keeps its normal single-line `Meds Reminder` / `History`
 presentation when it fits, while constrained large-text layouts let the complete History action wrap
