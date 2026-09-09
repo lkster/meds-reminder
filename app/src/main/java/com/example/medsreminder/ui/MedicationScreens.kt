@@ -173,7 +173,10 @@ fun MedicationListScreen(
                     )
                 }
                 Text("Snooze duration", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     listOf(5, 10, 15, 30).forEach { minutes ->
                         FilterChip(
                             selected = snoozeMinutes == minutes,

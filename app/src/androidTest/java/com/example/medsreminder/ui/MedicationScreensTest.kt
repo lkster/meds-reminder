@@ -121,6 +121,74 @@ class MedicationScreensTest {
     }
 
     @Test
+    fun snoozeDurationChoicesReflowAndRemainReachableWithLargeText() {
+        var testFontScale by mutableFloatStateOf(1.0f)
+        var snoozeMinutes by mutableStateOf(5)
+        var requestedSnoozeMinutes: Int? = null
+
+        compose.setContent {
+            val currentPixelDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = currentPixelDensity,
+                    fontScale = testFontScale,
+                ),
+            ) {
+                MaterialTheme {
+                    Box(Modifier.width(360.dp).testTag("m22-snooze-duration-viewport")) {
+                        MedicationListScreen(
+                            medications = emptyList(),
+                            capabilityItems = emptyList(),
+                            alarmSoundLabel = "System default",
+                            vibrationEnabled = true,
+                            snoozeMinutes = snoozeMinutes,
+                            showSamsungGuidance = false,
+                            onSamsungSettings = {},
+                            onChooseAlarmSound = {},
+                            onVibrationEnabledChange = {},
+                            onSnoozeMinutesChange = {
+                                requestedSnoozeMinutes = it
+                                snoozeMinutes = it
+                            },
+                            onHistory = {},
+                            onAdd = {},
+                            onEdit = {},
+                            onToggle = { _, _ -> },
+                            onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+
+        val viewportBounds = compose.onNodeWithTag("m22-snooze-duration-viewport").getUnclippedBoundsInRoot()
+        val fiveMinuteNode = compose.onNodeWithText("5 min")
+        fiveMinuteNode.assertIsSelected().assertHasClickAction()
+        listOf("5 min", "10 min", "15 min", "30 min").forEach { label ->
+            val bounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
+            compose.onNodeWithText(label).assertHasClickAction()
+            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
+        }
+
+        compose.runOnIdle { testFontScale = 2.0f }
+
+        val largeTextViewportBounds = compose.onNodeWithTag("m22-snooze-duration-viewport").getUnclippedBoundsInRoot()
+        val largeTextFiveMinuteBounds = compose.onNodeWithText("5 min").getUnclippedBoundsInRoot()
+        val largeTextThirtyMinuteBounds = compose.onNodeWithText("30 min").getUnclippedBoundsInRoot()
+        assertTrue(largeTextThirtyMinuteBounds.top > largeTextFiveMinuteBounds.top)
+        listOf("5 min", "10 min", "15 min", "30 min").forEach { label ->
+            val bounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
+            assertTrue(bounds.left >= largeTextViewportBounds.left && bounds.right <= largeTextViewportBounds.right)
+        }
+
+        compose.onNodeWithText("30 min").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(30, requestedSnoozeMinutes)
+        }
+        compose.onNodeWithText("30 min").assertIsSelected().assertHasClickAction()
+    }
+
+    @Test
     fun medicationCardLongNameKeepsEnabledSwitchReachableAtNarrowWidth() {
         val longName = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
         val item = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = longName)
