@@ -2,6 +2,7 @@ package com.example.medsreminder.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -52,6 +53,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class MedicationScreensTest {
@@ -856,6 +858,83 @@ class MedicationScreensTest {
         compose.onNodeWithText("Thu").assertIsSelected()
     }
 
+    @Test
+    fun weekdayChoicesReflowWithoutCompressionAndRemainReachableWithLargeText() {
+        var draft by mutableStateOf(
+            draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60, weekdayMask = WeekdayMask.ALL)),
+        )
+        var editorWidth by mutableStateOf(2000.dp)
+
+        compose.setContent {
+            val currentPixelDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(density = currentPixelDensity, fontScale = 2.0f),
+            ) {
+                MaterialTheme {
+                    Box(
+                        Modifier
+                            .requiredWidth(editorWidth)
+                            .testTag("m23-weekday-viewport"),
+                    ) {
+                        MedicationEditorScreen(draft, { draft = it }, {}, {})
+                    }
+                }
+            }
+        }
+
+        fun weekday(day: String) = compose.onNodeWithContentDescription(
+            "Reminder 1 at 08:00, $day",
+            useUnmergedTree = true,
+        )
+
+        val naturalMonBounds = weekday("Monday").getUnclippedBoundsInRoot()
+        val naturalTueBounds = weekday("Tuesday").getUnclippedBoundsInRoot()
+        val naturalWedBounds = weekday("Wednesday").getUnclippedBoundsInRoot()
+        val naturalThuBounds = weekday("Thursday").getUnclippedBoundsInRoot()
+        val naturalBounds = listOf(naturalMonBounds, naturalTueBounds, naturalWedBounds, naturalThuBounds)
+        assertTrue(naturalBounds.all { it.right - it.left > 0.dp })
+        assertTrue(naturalBounds.all { abs((it.top - naturalMonBounds.top).value) <= 1f })
+
+        val naturalMonWidth = naturalMonBounds.right - naturalMonBounds.left
+        val naturalTueWidth = naturalTueBounds.right - naturalTueBounds.left
+        val naturalWedWidth = naturalWedBounds.right - naturalWedBounds.left
+        val naturalThuWidth = naturalThuBounds.right - naturalThuBounds.left
+        val naturalFirstGroupWidth =
+            naturalMonWidth + naturalTueWidth + naturalWedWidth + naturalThuWidth + 18.dp
+        val constrainedFirstGroupWidth =
+            naturalFirstGroupWidth - naturalThuWidth / 2f
+        compose.runOnIdle { editorWidth = constrainedFirstGroupWidth + 64.dp }
+
+        val constrainedMonBounds = weekday("Monday").getUnclippedBoundsInRoot()
+        val constrainedTueBounds = weekday("Tuesday").getUnclippedBoundsInRoot()
+        val constrainedWedBounds = weekday("Wednesday").getUnclippedBoundsInRoot()
+        val constrainedThuBounds = weekday("Thursday").getUnclippedBoundsInRoot()
+        val constrainedBounds = listOf(
+            constrainedMonBounds,
+            constrainedTueBounds,
+            constrainedWedBounds,
+            constrainedThuBounds,
+        )
+        constrainedBounds.zip(naturalBounds).forEach { (constrained, natural) ->
+            assertTrue(
+                abs(((constrained.right - constrained.left) - (natural.right - natural.left)).value) <= 1f,
+            )
+        }
+        assertTrue(constrainedThuBounds.top > constrainedMonBounds.top)
+
+        val viewportBounds = compose.onNodeWithTag("m23-weekday-viewport").getUnclippedBoundsInRoot()
+        listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday").forEach { day ->
+            val bounds = weekday(day).getUnclippedBoundsInRoot()
+            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
+            weekday(day).assertIsSelected().assertHasClickAction()
+        }
+
+        weekday("Thursday").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(WeekdayMask.ALL xor THURSDAY, draft.times[0].weekdayMask) }
+        weekday("Thursday").assertIsNotSelected()
+        weekday("Monday").assertIsSelected()
+    }
+
     private fun draftWith(vararg times: EditorTime) = EditorDraft(
         id = 1L,
         name = "Medicine",
@@ -896,5 +975,6 @@ class MedicationScreensTest {
         private const val MONDAY = 0b0000001
         private const val MONDAY_WEDNESDAY_FRIDAY = 0b0010101
         private const val TUESDAY_THURSDAY = 0b0001010
+        private const val THURSDAY = 0b0001000
     }
 }

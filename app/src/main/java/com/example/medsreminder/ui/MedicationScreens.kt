@@ -507,7 +507,10 @@ private fun WeekdaySelector(
         label = { Text("Every day") },
     )
     DAY_ROWS.forEach { days ->
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             days.forEach { day ->
                 val bit = 1 shl (day.value - 1)
                 FilterChip(

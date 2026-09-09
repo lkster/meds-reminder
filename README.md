@@ -1,4 +1,4 @@
-# Meds Reminder M22
+# Meds Reminder M23
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
@@ -10,7 +10,9 @@ an explicit alarm tone returned by Android's system ringtone picker, enable or d
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M22 large-text Snooze-duration choice reachability; M21 long medication-name card-header Switch reachability; M20 primary-title Heading semantics; M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M23 large-text weekday-selector reachability; M22 large-text Snooze-duration choice reachability; M21 long medication-name card-header Switch reachability; M20 primary-title Heading semantics; M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+
+Medication-editor weekday choices now preserve complete native `FilterChip` controls when an existing weekday subgroup cannot fit at its natural width. The Mon–Thu and Fri–Sun groupings remain unchanged; controls reflow onto later visual lines as needed instead of being compressed. The separate Every day control, weekday ordering, `WeekdayMask` values, selection/click behavior, M13 contextual accessibility semantics, validation, editor state ownership, persistence, and alarm behavior are unchanged.
 
 The 5, 10, 15, and 30 minute Snooze-duration choices remain native `FilterChip`s and stay on one row when they fit. With constrained width or large text, they reflow onto later rows so every choice remains reachable. The existing preference values, persistence, and callbacks are unchanged; no Room, AlarmManager, alarm-delivery, lifecycle, navigation, or persistence authority changed.
 
