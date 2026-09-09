@@ -39,8 +39,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.medsreminder.data.MedicationEntity
@@ -933,6 +936,107 @@ class MedicationScreensTest {
         compose.runOnIdle { assertEquals(WeekdayMask.ALL xor THURSDAY, draft.times[0].weekdayMask) }
         weekday("Thursday").assertIsNotSelected()
         weekday("Monday").assertIsSelected()
+    }
+
+    @Test
+    fun alarmReadinessCapabilityStatusKeepsNaturalAllocationWithLargeText() {
+        var viewportWidth by mutableStateOf(2000.dp)
+        var actionClicks = 0
+        var pixelDensity = 0f
+
+        compose.setContent {
+            pixelDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(density = pixelDensity, fontScale = 2.0f),
+            ) {
+                MaterialTheme {
+                    Box(
+                        Modifier
+                            .requiredWidth(viewportWidth)
+                            .testTag("m24-alarm-readiness-viewport"),
+                    ) {
+                        MedicationListScreen(
+                            medications = emptyList(),
+                            capabilityItems = listOf(
+                                CapabilityItem(
+                                    title = "Full-screen alarm",
+                                    ready = false,
+                                    detail = "Full-screen alarm access is unavailable.",
+                                    actionLabel = "Open full-screen access",
+                                    onAction = { actionClicks++ },
+                                    requiredForReliableDelivery = false,
+                                ),
+                            ),
+                            alarmSoundLabel = "System default",
+                            vibrationEnabled = true,
+                            snoozeMinutes = 5,
+                            showSamsungGuidance = false,
+                            onSamsungSettings = {},
+                            onChooseAlarmSound = {},
+                            onVibrationEnabledChange = {},
+                            onSnoozeMinutesChange = {},
+                            onHistory = {},
+                            onAdd = {},
+                            onEdit = {},
+                            onToggle = { _, _ -> },
+                            onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+
+        val titleNode = compose.onNodeWithText("Full-screen alarm", useUnmergedTree = true)
+        val statusNode = compose.onNodeWithText("Limited", useUnmergedTree = true)
+        val titleLayouts = mutableListOf<TextLayoutResult>()
+        titleNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
+            action(titleLayouts)
+        }
+        assertEquals(1, titleLayouts.size)
+        val titleLayout = titleLayouts.single()
+        assertEquals(1, titleLayout.lineCount)
+
+        val gap = 8.dp
+        val naturalTitleWidth =
+            ((titleLayout.getLineRight(0) - titleLayout.getLineLeft(0)) / pixelDensity).dp
+        val naturalStatusBounds = statusNode.getUnclippedBoundsInRoot()
+        val naturalStatusWidth = naturalStatusBounds.right - naturalStatusBounds.left
+        val naturalStatusHeight = naturalStatusBounds.bottom - naturalStatusBounds.top
+        assertTrue(naturalTitleWidth > gap)
+        assertTrue(naturalStatusWidth > 0.dp)
+        assertTrue(naturalStatusHeight > 0.dp)
+
+        val delta = minOf(naturalStatusWidth / 2f, (naturalTitleWidth - gap) / 2f)
+        val baselineStatusAllocation = naturalStatusWidth - delta
+        assertTrue(baselineStatusAllocation > 0.dp)
+        assertTrue(baselineStatusAllocation < naturalStatusWidth)
+        val constrainedHeaderWidth = naturalTitleWidth + naturalStatusWidth - delta
+        val correctedTitleAllocation = constrainedHeaderWidth - naturalStatusWidth - gap
+        assertTrue(correctedTitleAllocation > 0.dp)
+        assertTrue(correctedTitleAllocation < naturalTitleWidth)
+        val verifiedProductionHorizontalInsets = 96.dp
+        compose.runOnIdle {
+            viewportWidth = constrainedHeaderWidth + verifiedProductionHorizontalInsets
+        }
+
+        val viewportBounds = compose.onNodeWithTag("m24-alarm-readiness-viewport")
+            .getUnclippedBoundsInRoot()
+        val constrainedTitleBounds = compose.onNodeWithText("Full-screen alarm", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val constrainedStatusNode = compose.onNodeWithText("Limited", useUnmergedTree = true)
+        val constrainedStatusBounds = constrainedStatusNode.getUnclippedBoundsInRoot()
+        val constrainedStatusWidth = constrainedStatusBounds.right - constrainedStatusBounds.left
+        val constrainedStatusHeight = constrainedStatusBounds.bottom - constrainedStatusBounds.top
+        assertTrue(abs((constrainedStatusWidth - naturalStatusWidth).value) <= 1f)
+        assertTrue(abs((constrainedStatusHeight - naturalStatusHeight).value) <= 1f)
+        listOf(constrainedTitleBounds, constrainedStatusBounds).forEach { bounds ->
+            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
+        }
+        assertTrue(constrainedTitleBounds.right <= constrainedStatusBounds.left)
+
+        val actionNode = compose.onNodeWithText("Open full-screen access")
+        actionNode.assertHasClickAction().performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, actionClicks) }
     }
 
     private fun draftWith(vararg times: EditorTime) = EditorDraft(

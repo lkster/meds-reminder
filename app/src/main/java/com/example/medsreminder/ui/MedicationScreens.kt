@@ -295,8 +295,12 @@ private fun AlarmReadinessSection(capabilityItems: List<CapabilityItem>) {
 private fun CapabilityCard(capability: CapabilityItem) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(capability.title, style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    capability.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Text(if (capability.requiredForReliableDelivery) "Required" else "Limited")
             }
             Text(capability.detail, style = MaterialTheme.typography.bodySmall)
