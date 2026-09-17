@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +41,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
 import java.time.DayOfWeek
@@ -107,16 +112,8 @@ data class CapabilityItem(
 @Composable
 fun MedicationListScreen(
     medications: List<MedicationWithTimes>?,
-    capabilityItems: List<CapabilityItem>,
-    alarmSoundLabel: String,
-    vibrationEnabled: Boolean,
-    snoozeMinutes: Int,
-    showSamsungGuidance: Boolean,
-    onSamsungSettings: () -> Unit,
-    onChooseAlarmSound: () -> Unit,
-    onVibrationEnabledChange: (Boolean) -> Unit,
-    onSnoozeMinutesChange: (Int) -> Unit,
     onHistory: () -> Unit,
+    onSettings: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
@@ -148,45 +145,15 @@ fun MedicationListScreen(
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineMedium,
             )
-            OutlinedButton(onClick = onHistory) { Text("History") }
-        }
-        AlarmReadinessSection(capabilityItems)
-        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Alarm behavior", style = MaterialTheme.typography.titleLarge)
-                Text("Sound", style = MaterialTheme.typography.titleMedium)
-                Text(alarmSoundLabel, style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(onClick = onChooseAlarmSound) { Text("Choose alarm sound") }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Vibration", style = MaterialTheme.typography.titleMedium)
-                    Switch(
-                        checked = vibrationEnabled,
-                        onCheckedChange = onVibrationEnabledChange,
-                        modifier = Modifier
-                            .testTag("alarm-vibration-toggle")
-                            .semantics { contentDescription = "Vibration" },
-                    )
-                }
-                Text("Snooze duration", style = MaterialTheme.typography.titleMedium)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf(5, 10, 15, 30).forEach { minutes ->
-                        FilterChip(
-                            selected = snoozeMinutes == minutes,
-                            onClick = { onSnoozeMinutesChange(minutes) },
-                            label = { Text("$minutes min") },
-                        )
-                    }
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = onHistory) { Text("History") }
+                IconButton(
+                    onClick = onSettings,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Settings" },
+                ) { Icon(Icons.Outlined.Settings, contentDescription = null) }
             }
         }
+        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
         when {
             medications == null -> Text("Loading medications…")
             medications.isEmpty() -> Text("No medications yet.")
@@ -234,16 +201,6 @@ fun MedicationListScreen(
                             },
                         ) { Text("Delete") }
                     }
-                }
-            }
-        }
-
-        if (showSamsungGuidance) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Samsung unlocked alarm actions", style = MaterialTheme.typography.titleMedium)
-                    Text("Samsung Brief pop-ups may hide immediate Taken, Snooze, and Skip actions. Detailed is a user-controlled Samsung setting that Meds Reminder cannot change.")
-                    OutlinedButton(onClick = onSamsungSettings) { Text("Open notification settings") }
                 }
             }
         }

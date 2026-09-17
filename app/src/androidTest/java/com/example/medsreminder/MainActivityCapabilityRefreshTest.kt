@@ -3,7 +3,10 @@ package com.example.medsreminder
 import android.app.NotificationManager
 import android.os.Build
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -40,10 +43,11 @@ class MainActivityCapabilityRefreshTest {
 
             scenario = ActivityScenario.launch(MainActivity::class.java)
             compose.waitForIdle()
+            compose.onNodeWithContentDescription("Settings").performClick()
+            compose.onNodeWithText("Alarm readiness").performClick()
             compose.onNodeWithText("Full-screen alarm").assertExists()
-            compose.onNodeWithText(
-                "Reminders can still use the actionable alarm notification, but the full-screen alarm may not appear over the lock screen.",
-            ).assertExists()
+            val summaryWasLimited = compose.onAllNodesWithText("Alarm setup is limited")
+                .fetchSemanticsNodes().isNotEmpty()
             compose.onNodeWithText("Open full-screen access").assertExists()
 
             var originalActivity: MainActivity? = null
@@ -60,9 +64,11 @@ class MainActivityCapabilityRefreshTest {
 
             compose.waitForIdle()
             compose.onNodeWithText("Open full-screen access").assertDoesNotExist()
-            compose.onNodeWithText(
-                "Reminders can still use the actionable alarm notification, but the full-screen alarm may not appear over the lock screen.",
-            ).assertDoesNotExist()
+            if (summaryWasLimited) {
+                compose.onNodeWithText("Everything is ready").assertExists()
+            } else {
+                compose.onNodeWithText("Alarm setup needs attention").assertExists()
+            }
         } finally {
             scenario?.close()
             setFsiMode(packageName, originalRawMode)

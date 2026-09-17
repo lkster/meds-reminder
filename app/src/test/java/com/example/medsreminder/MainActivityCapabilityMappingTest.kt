@@ -52,4 +52,16 @@ class MainActivityCapabilityMappingTest {
 
         assertTrue(item.ready)
     }
+
+    @Test
+    fun missingRuntimePermissionWinsWhenBothNotificationSubstatesAreUnavailable() {
+        var permissionRequests = 0
+        var settingsOpens = 0
+        val item = buildNotificationCapabilityItem(false, false, { permissionRequests++ }, { settingsOpens++ })
+
+        assertFalse(item.ready)
+        item.onAction()
+        assertEquals(1, permissionRequests)
+        assertEquals(0, settingsOpens)
+    }
 }

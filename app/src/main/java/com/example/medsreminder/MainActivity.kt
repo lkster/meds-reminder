@@ -21,7 +21,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,8 +50,11 @@ import com.example.medsreminder.ui.HistoryScreen
 import com.example.medsreminder.ui.MedicationEditorViewModel
 import com.example.medsreminder.ui.MedicationEditorScreen
 import com.example.medsreminder.ui.MedicationListScreen
+import com.example.medsreminder.ui.SettingsScreen
+import com.example.medsreminder.ui.AlarmReadinessScreen
 import com.example.medsreminder.ui.MedicationEditorViewModelTestHook
 import com.example.medsreminder.ui.toHistoryItem
+import com.example.medsreminder.ui.theme.MedsReminderTheme
 import java.time.ZoneId
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private enum class NormalAppPane { MEDICATIONS, HISTORY, SETTINGS, ALARM_READINESS }
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { AppDatabase.get(this) }
@@ -83,6 +87,7 @@ class MainActivity : ComponentActivity() {
         ),
     )
     private var alarmSoundLabel by mutableStateOf("System default")
+    private var normalAppBackHandler: (() -> Boolean)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +108,8 @@ class MainActivity : ComponentActivity() {
                 if (editorOwner.draft != null) {
                     // cancelIdleEditor intentionally consumes Back while an operation is active.
                     editorOwner.cancelIdleEditor()
+                } else if (normalAppBackHandler?.invoke() == true) {
+                    return
                 } else {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
@@ -128,8 +135,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            MaterialTheme {
-                Surface { MainContent() }
+            MedsReminderTheme {
+                Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) { MainContent() }
             }
         }
     }
@@ -145,7 +152,14 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun MainContent() {
-        var historyVisible by rememberSaveable { mutableStateOf(false) }
+        var pane by rememberSaveable { mutableStateOf(NormalAppPane.MEDICATIONS) }
+        normalAppBackHandler = {
+            when (pane) {
+                NormalAppPane.MEDICATIONS -> false
+                NormalAppPane.HISTORY, NormalAppPane.SETTINGS -> { pane = NormalAppPane.MEDICATIONS; true }
+                NormalAppPane.ALARM_READINESS -> { pane = NormalAppPane.SETTINGS; true }
+            }
+        }
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { refreshCapabilities() }
@@ -181,8 +195,8 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
-        if (historyVisible) {
-            HistoryScreen(history = history, onBack = { historyVisible = false })
+        if (pane == NormalAppPane.HISTORY) {
+            HistoryScreen(history = history, onBack = { pane = NormalAppPane.MEDICATIONS })
             return
         }
 
@@ -196,7 +210,7 @@ class MainActivity : ComponentActivity() {
                 onOpenNotificationSettings = ::openAppNotificationSettings,
             ),
             CapabilityItem(
-                "Alarm channel",
+                "Alarm notifications",
                 capabilities.channelHighImportance,
                 "The Medication alarms channel must remain at the high importance required for actionable heads-up alarm presentation.",
                 "Open channel settings",
@@ -218,15 +232,7 @@ class MainActivity : ComponentActivity() {
                 requiredForReliableDelivery = false,
             ),
         )
-        MedicationListScreen(
-            medications = medications,
-            capabilityItems = capabilityItems,
-            alarmSoundLabel = alarmSoundLabel,
-            vibrationEnabled = alarmPreferences.vibrationEnabled,
-            snoozeMinutes = alarmPreferences.snoozeMinutes,
-            showSamsungGuidance = Build.MANUFACTURER.equals("samsung", ignoreCase = true),
-            onSamsungSettings = ::openAppNotificationSettings,
-            onChooseAlarmSound = {
+        val chooseAlarmSound = {
                 ringtonePickerLauncher.launch(
                     Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                         putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
@@ -242,21 +248,44 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 )
-            },
-            onVibrationEnabledChange = { enabled ->
+            }
+        val setVibration: (Boolean) -> Unit = { enabled ->
                 AlarmPreferences.setVibrationEnabled(this, enabled)
                 refreshAlarmPreferences()
-            },
-            onSnoozeMinutesChange = { minutes ->
+            }
+        val setSnooze: (Int) -> Unit = { minutes ->
                 AlarmPreferences.setSnoozeMinutes(this, minutes)
                 refreshAlarmPreferences()
-            },
-            onHistory = { historyVisible = true },
-            onAdd = editorOwner::openNew,
-            onEdit = editorOwner::openExisting,
-            onToggle = ::saveMedicationListToggle,
-            onDelete = ::deleteMedication,
-        )
+            }
+        when (pane) {
+            NormalAppPane.MEDICATIONS -> MedicationListScreen(
+                medications = medications,
+                onHistory = { pane = NormalAppPane.HISTORY },
+                onSettings = { pane = NormalAppPane.SETTINGS },
+                onAdd = editorOwner::openNew,
+                onEdit = editorOwner::openExisting,
+                onToggle = ::saveMedicationListToggle,
+                onDelete = ::deleteMedication,
+            )
+            NormalAppPane.SETTINGS -> SettingsScreen(
+                capabilityItems = capabilityItems,
+                alarmSoundLabel = alarmSoundLabel,
+                vibrationEnabled = alarmPreferences.vibrationEnabled,
+                snoozeMinutes = alarmPreferences.snoozeMinutes,
+                onBack = { pane = NormalAppPane.MEDICATIONS },
+                onReadiness = { pane = NormalAppPane.ALARM_READINESS },
+                onChooseAlarmSound = chooseAlarmSound,
+                onVibrationEnabledChange = setVibration,
+                onSnoozeMinutesChange = setSnooze,
+            )
+            NormalAppPane.ALARM_READINESS -> AlarmReadinessScreen(
+                capabilityItems = capabilityItems,
+                showSamsungGuidance = Build.MANUFACTURER.equals("samsung", ignoreCase = true),
+                onBack = { pane = NormalAppPane.SETTINGS },
+                onSamsungSettings = ::openAppNotificationSettings,
+            )
+            NormalAppPane.HISTORY -> Unit
+        }
     }
 
     /** List enable/disable deliberately remains an independent Activity operation. */

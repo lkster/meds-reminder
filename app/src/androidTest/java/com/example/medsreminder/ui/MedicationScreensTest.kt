@@ -67,6 +67,7 @@ class MedicationScreensTest {
     fun medicationListHeaderKeepsHistoryReachableWhenLargeTextForcesWrap() {
         var testFontScale by mutableFloatStateOf(1.0f)
         var historyClicks = 0
+        var settingsClicks = 0
 
         compose.setContent {
             val currentPixelDensity = LocalDensity.current.density
@@ -80,16 +81,8 @@ class MedicationScreensTest {
                     Box(Modifier.width(360.dp).testTag("m19-medication-list-viewport")) {
                         MedicationListScreen(
                             medications = emptyList(),
-                            capabilityItems = emptyList(),
-                            alarmSoundLabel = "System default",
-                            vibrationEnabled = true,
-                            snoozeMinutes = 5,
-                            showSamsungGuidance = false,
-                            onSamsungSettings = {},
-                            onChooseAlarmSound = {},
-                            onVibrationEnabledChange = {},
-                            onSnoozeMinutesChange = {},
                             onHistory = { historyClicks++ },
+                            onSettings = { settingsClicks++ },
                             onAdd = {},
                             onEdit = {},
                             onToggle = { _, _ -> },
@@ -115,82 +108,20 @@ class MedicationScreensTest {
         val largeTextTitleBounds = compose.onNodeWithText("Meds Reminder").getUnclippedBoundsInRoot()
         val largeTextHistoryNode = compose.onNodeWithText("History")
         val largeTextHistoryBounds = largeTextHistoryNode.getUnclippedBoundsInRoot()
+        val largeTextSettingsNode = compose.onNodeWithContentDescription("Settings")
+        val largeTextSettingsBounds = largeTextSettingsNode.getUnclippedBoundsInRoot()
         largeTextHistoryNode.assertHasClickAction()
+        largeTextSettingsNode.assertHasClickAction()
         assertTrue(largeTextHistoryBounds.top >= largeTextTitleBounds.bottom)
         assertTrue(
             largeTextHistoryBounds.left >= largeTextViewportBounds.left &&
                 largeTextHistoryBounds.right <= largeTextViewportBounds.right,
         )
+        assertTrue(largeTextSettingsBounds.left >= largeTextViewportBounds.left && largeTextSettingsBounds.right <= largeTextViewportBounds.right)
+        assertTrue(largeTextSettingsBounds.right - largeTextSettingsBounds.left >= 48.dp)
         largeTextHistoryNode.performClick()
-        compose.runOnIdle { assertEquals(1, historyClicks) }
-    }
-
-    @Test
-    fun snoozeDurationChoicesReflowAndRemainReachableWithLargeText() {
-        var testFontScale by mutableFloatStateOf(1.0f)
-        var snoozeMinutes by mutableStateOf(5)
-        var requestedSnoozeMinutes: Int? = null
-
-        compose.setContent {
-            val currentPixelDensity = LocalDensity.current.density
-            CompositionLocalProvider(
-                LocalDensity provides Density(
-                    density = currentPixelDensity,
-                    fontScale = testFontScale,
-                ),
-            ) {
-                MaterialTheme {
-                    Box(Modifier.width(360.dp).testTag("m22-snooze-duration-viewport")) {
-                        MedicationListScreen(
-                            medications = emptyList(),
-                            capabilityItems = emptyList(),
-                            alarmSoundLabel = "System default",
-                            vibrationEnabled = true,
-                            snoozeMinutes = snoozeMinutes,
-                            showSamsungGuidance = false,
-                            onSamsungSettings = {},
-                            onChooseAlarmSound = {},
-                            onVibrationEnabledChange = {},
-                            onSnoozeMinutesChange = {
-                                requestedSnoozeMinutes = it
-                                snoozeMinutes = it
-                            },
-                            onHistory = {},
-                            onAdd = {},
-                            onEdit = {},
-                            onToggle = { _, _ -> },
-                            onDelete = {},
-                        )
-                    }
-                }
-            }
-        }
-
-        val viewportBounds = compose.onNodeWithTag("m22-snooze-duration-viewport").getUnclippedBoundsInRoot()
-        val fiveMinuteNode = compose.onNodeWithText("5 min")
-        fiveMinuteNode.assertIsSelected().assertHasClickAction()
-        listOf("5 min", "10 min", "15 min", "30 min").forEach { label ->
-            val bounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
-            compose.onNodeWithText(label).assertHasClickAction()
-            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
-        }
-
-        compose.runOnIdle { testFontScale = 2.0f }
-
-        val largeTextViewportBounds = compose.onNodeWithTag("m22-snooze-duration-viewport").getUnclippedBoundsInRoot()
-        val largeTextFiveMinuteBounds = compose.onNodeWithText("5 min").getUnclippedBoundsInRoot()
-        val largeTextThirtyMinuteBounds = compose.onNodeWithText("30 min").getUnclippedBoundsInRoot()
-        assertTrue(largeTextThirtyMinuteBounds.top > largeTextFiveMinuteBounds.top)
-        listOf("5 min", "10 min", "15 min", "30 min").forEach { label ->
-            val bounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
-            assertTrue(bounds.left >= largeTextViewportBounds.left && bounds.right <= largeTextViewportBounds.right)
-        }
-
-        compose.onNodeWithText("30 min").performScrollTo().performClick()
-        compose.runOnIdle {
-            assertEquals(30, requestedSnoozeMinutes)
-        }
-        compose.onNodeWithText("30 min").assertIsSelected().assertHasClickAction()
+        largeTextSettingsNode.performClick()
+        compose.runOnIdle { assertEquals(1, historyClicks); assertEquals(1, settingsClicks) }
     }
 
     @Test
@@ -210,10 +141,7 @@ class MedicationScreensTest {
                 MaterialTheme {
                     Box(Modifier.width(360.dp).testTag("m21-medication-card-viewport")) {
                         MedicationListScreen(
-                            medications = listOf(item), capabilityItems = emptyList(),
-                            alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
-                            showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
-                            onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                            medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
                             onEdit = {}, onToggle = { medication, enabled -> toggled = medication to enabled },
                             onDelete = {},
                         )
@@ -249,16 +177,8 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = null,
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default",
-                    vibrationEnabled = true,
-                    snoozeMinutes = 5,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {},
                     onHistory = {},
+                    onSettings = {},
                     onAdd = { addClicks++ },
                     onEdit = {},
                     onToggle = { _, _ -> },
@@ -280,16 +200,8 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = emptyList(),
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default",
-                    vibrationEnabled = true,
-                    snoozeMinutes = 5,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {},
                     onHistory = {},
+                    onSettings = {},
                     onAdd = {},
                     onEdit = {},
                     onToggle = { _, _ -> },
@@ -302,115 +214,13 @@ class MedicationScreensTest {
         compose.onNodeWithText("Loading medications…").assertDoesNotExist()
     }
 
-    @Test
-    fun alarmReadinessShowsRequiredIssuesBeforeCrudAndKeepsActionsAvailable() {
-        var addClicks = 0
-        var historyClicks = 0
-        var notificationClicks = 0
-        compose.setContent {
-            MaterialTheme {
-                MedicationListScreen(
-                    medications = emptyList(),
-                    capabilityItems = listOf(CapabilityItem("Notifications", false, "Notification permission is required so medication alarms can show their actionable notification.", "Allow notifications", { notificationClicks++ })),
-                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
-                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = { historyClicks++ },
-                    onAdd = { addClicks++ }, onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
-                )
-            }
-        }
 
-        compose.onNodeWithText("Alarm setup needs attention").assertExists()
-        val readinessTop = compose.onNodeWithText("Alarm setup needs attention")
-            .getUnclippedBoundsInRoot().top
-        val addMedicationTop = compose.onNodeWithText("Add medication")
-            .getUnclippedBoundsInRoot().top
-        assertTrue(readinessTop < addMedicationTop)
-        compose.onNodeWithText("Allow notifications").performClick()
-        compose.onNodeWithText("Add medication").assertIsEnabled().performClick()
-        compose.onNodeWithText("History").assertIsEnabled().performClick()
-        assertEquals(1, notificationClicks)
-        assertEquals(1, addClicks)
-        assertEquals(1, historyClicks)
-    }
 
-    @Test
-    fun allReadyReadinessCollapsesDetailedCards() {
-        val ready = listOf(
-            CapabilityItem("Notifications", true, "", "", {}),
-            CapabilityItem("Alarm channel", true, "", "", {}),
-            CapabilityItem("Exact alarms", true, "", "", {}),
-            CapabilityItem("Full-screen alarm", true, "", "", {}, requiredForReliableDelivery = false),
-        )
-        compose.setContent {
-            MaterialTheme {
-                MedicationListScreen(
-                    medications = emptyList(), capabilityItems = ready, alarmSoundLabel = "System default",
-                    vibrationEnabled = true, snoozeMinutes = 5, showSamsungGuidance = false,
-                    onSamsungSettings = {}, onChooseAlarmSound = {}, onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {}, onEdit = {},
-                    onToggle = { _, _ -> }, onDelete = {},
-                )
-            }
-        }
-        compose.onNodeWithText("Alarm setup — Ready").assertExists()
-        compose.onNodeWithText("Notifications").assertDoesNotExist()
-    }
 
-    @Test
-    fun fsiOnlyReadinessIsLimitedAndKeepsNotificationFallbackVisible() {
-        compose.setContent {
-            MaterialTheme {
-                MedicationListScreen(
-                    medications = emptyList(),
-                    capabilityItems = listOf(
-                        CapabilityItem("Notifications", true, "", "", {}),
-                        CapabilityItem("Alarm channel", true, "", "", {}),
-                        CapabilityItem("Exact alarms", true, "", "", {}),
-                        CapabilityItem(
-                            "Full-screen alarm", false,
-                            "Reminders can still use the actionable alarm notification, but the full-screen alarm may not appear over the lock screen.",
-                            "Open full-screen access", {}, requiredForReliableDelivery = false,
-                        ),
-                    ),
-                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
-                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
-                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
-                )
-            }
-        }
 
-        compose.onNodeWithText("Alarm setup is limited").assertExists()
-        compose.onNodeWithText("Alarm setup needs attention").assertDoesNotExist()
-        compose.onNodeWithText("Actionable alarm notifications remain available, but full-screen presentation is limited.").assertExists()
-        compose.onNodeWithText("Full-screen alarm").assertExists()
-        compose.onNodeWithText("Open full-screen access").assertExists()
-    }
 
-    @Test
-    fun readinessHeadingStatusAndActionExposeNormalSemantics() {
-        compose.setContent {
-            MaterialTheme {
-                MedicationListScreen(
-                    medications = emptyList(),
-                    capabilityItems = listOf(CapabilityItem("Notifications", false, "Notification permission is required so medication alarms can show their actionable notification.", "Allow notifications", {})),
-                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
-                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
-                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
-                )
-            }
-        }
 
-        compose.onNodeWithText("Alarm setup needs attention").assertExists()
-        compose.onNode(
-            hasText("Alarm setup needs attention")
-                .and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)),
-        ).assertExists()
-        compose.onNodeWithText("Required").assertExists()
-        compose.onNodeWithText("Allow notifications").assertHasClickAction()
-    }
+
 
     @Test
     fun existingEveryDayScheduleRendersAsEveryDay() {
@@ -433,16 +243,8 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(item),
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default",
-                    vibrationEnabled = true,
-                    snoozeMinutes = 5,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {},
                     onHistory = {},
+                    onSettings = {},
                     onAdd = {},
                     onEdit = {},
                     onToggle = { _, _ -> },
@@ -456,46 +258,7 @@ class MedicationScreensTest {
         compose.onNodeWithText("No medications yet.").assertDoesNotExist()
     }
 
-    @Test
-    fun alarmBehaviorControlsExposeGlobalSoundVibrationAndSnoozeChoices() {
-        var vibrationEnabled by mutableStateOf(true)
-        var snoozeMinutes by mutableStateOf(5)
-        var chooseSoundClicks = 0
-        compose.setContent {
-            MaterialTheme {
-                MedicationListScreen(
-                    medications = emptyList(),
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "Morning Bell",
-                    vibrationEnabled = vibrationEnabled,
-                    snoozeMinutes = snoozeMinutes,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = { chooseSoundClicks++ },
-                    onVibrationEnabledChange = { vibrationEnabled = it },
-                    onSnoozeMinutesChange = { snoozeMinutes = it },
-                    onHistory = {},
-                    onAdd = {},
-                    onEdit = {},
-                    onToggle = { _, _ -> },
-                    onDelete = {},
-                )
-            }
-        }
 
-        compose.onNodeWithText("Morning Bell").assertExists()
-        compose.onNodeWithText("5 min").assertIsSelected()
-        compose.onNodeWithText("15 min").performClick()
-        compose.onNodeWithText("15 min").assertIsSelected()
-        compose.onNodeWithText("Choose alarm sound").performClick()
-        compose.onNodeWithTag("alarm-vibration-toggle").performClick()
-
-        compose.runOnIdle {
-            assertEquals(15, snoozeMinutes)
-            assertEquals(1, chooseSoundClicks)
-            assertEquals(false, vibrationEnabled)
-        }
-    }
 
     @Test
     fun togglingWeekdayUpdatesOnlyItsReminderRow() {
@@ -670,16 +433,8 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(item),
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default",
-                    vibrationEnabled = false,
-                    snoozeMinutes = 5,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {},
                     onHistory = {},
+                    onSettings = {},
                     onAdd = {},
                     onEdit = {},
                     onToggle = { _, _ -> },
@@ -700,16 +455,8 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(item),
-                    capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default",
-                    vibrationEnabled = true,
-                    snoozeMinutes = 5,
-                    showSamsungGuidance = false,
-                    onSamsungSettings = {},
-                    onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {},
-                    onSnoozeMinutesChange = {},
                     onHistory = {},
+                    onSettings = {},
                     onAdd = {},
                     onEdit = {},
                     onToggle = { medication, enabled -> toggled = medication to enabled },
@@ -754,10 +501,7 @@ class MedicationScreensTest {
         compose.setContent {
             MaterialTheme {
                 MedicationListScreen(
-                    medications = listOf(first, second), capabilityItems = emptyList(),
-                    alarmSoundLabel = "System default", vibrationEnabled = true, snoozeMinutes = 5,
-                    showSamsungGuidance = false, onSamsungSettings = {}, onChooseAlarmSound = {},
-                    onVibrationEnabledChange = {}, onSnoozeMinutesChange = {}, onHistory = {}, onAdd = {},
+                    medications = listOf(first, second), onHistory = {}, onSettings = {}, onAdd = {},
                     onEdit = { editedId = it.medication.id }, onToggle = { _, _ -> },
                     onDelete = { deletedId = it },
                 )
@@ -938,106 +682,7 @@ class MedicationScreensTest {
         weekday("Monday").assertIsSelected()
     }
 
-    @Test
-    fun alarmReadinessCapabilityStatusKeepsNaturalAllocationWithLargeText() {
-        var viewportWidth by mutableStateOf(2000.dp)
-        var actionClicks = 0
-        var pixelDensity = 0f
 
-        compose.setContent {
-            pixelDensity = LocalDensity.current.density
-            CompositionLocalProvider(
-                LocalDensity provides Density(density = pixelDensity, fontScale = 2.0f),
-            ) {
-                MaterialTheme {
-                    Box(
-                        Modifier
-                            .requiredWidth(viewportWidth)
-                            .testTag("m24-alarm-readiness-viewport"),
-                    ) {
-                        MedicationListScreen(
-                            medications = emptyList(),
-                            capabilityItems = listOf(
-                                CapabilityItem(
-                                    title = "Full-screen alarm",
-                                    ready = false,
-                                    detail = "Full-screen alarm access is unavailable.",
-                                    actionLabel = "Open full-screen access",
-                                    onAction = { actionClicks++ },
-                                    requiredForReliableDelivery = false,
-                                ),
-                            ),
-                            alarmSoundLabel = "System default",
-                            vibrationEnabled = true,
-                            snoozeMinutes = 5,
-                            showSamsungGuidance = false,
-                            onSamsungSettings = {},
-                            onChooseAlarmSound = {},
-                            onVibrationEnabledChange = {},
-                            onSnoozeMinutesChange = {},
-                            onHistory = {},
-                            onAdd = {},
-                            onEdit = {},
-                            onToggle = { _, _ -> },
-                            onDelete = {},
-                        )
-                    }
-                }
-            }
-        }
-
-        val titleNode = compose.onNodeWithText("Full-screen alarm", useUnmergedTree = true)
-        val statusNode = compose.onNodeWithText("Limited", useUnmergedTree = true)
-        val titleLayouts = mutableListOf<TextLayoutResult>()
-        titleNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
-            action(titleLayouts)
-        }
-        assertEquals(1, titleLayouts.size)
-        val titleLayout = titleLayouts.single()
-        assertEquals(1, titleLayout.lineCount)
-
-        val gap = 8.dp
-        val naturalTitleWidth =
-            ((titleLayout.getLineRight(0) - titleLayout.getLineLeft(0)) / pixelDensity).dp
-        val naturalStatusBounds = statusNode.getUnclippedBoundsInRoot()
-        val naturalStatusWidth = naturalStatusBounds.right - naturalStatusBounds.left
-        val naturalStatusHeight = naturalStatusBounds.bottom - naturalStatusBounds.top
-        assertTrue(naturalTitleWidth > gap)
-        assertTrue(naturalStatusWidth > 0.dp)
-        assertTrue(naturalStatusHeight > 0.dp)
-
-        val delta = minOf(naturalStatusWidth / 2f, (naturalTitleWidth - gap) / 2f)
-        val baselineStatusAllocation = naturalStatusWidth - delta
-        assertTrue(baselineStatusAllocation > 0.dp)
-        assertTrue(baselineStatusAllocation < naturalStatusWidth)
-        val constrainedHeaderWidth = naturalTitleWidth + naturalStatusWidth - delta
-        val correctedTitleAllocation = constrainedHeaderWidth - naturalStatusWidth - gap
-        assertTrue(correctedTitleAllocation > 0.dp)
-        assertTrue(correctedTitleAllocation < naturalTitleWidth)
-        val verifiedProductionHorizontalInsets = 96.dp
-        compose.runOnIdle {
-            viewportWidth = constrainedHeaderWidth + verifiedProductionHorizontalInsets
-        }
-
-        val viewportBounds = compose.onNodeWithTag("m24-alarm-readiness-viewport")
-            .getUnclippedBoundsInRoot()
-        val constrainedTitleBounds = compose.onNodeWithText("Full-screen alarm", useUnmergedTree = true)
-            .getUnclippedBoundsInRoot()
-        val constrainedStatusNode = compose.onNodeWithText("Limited", useUnmergedTree = true)
-        val constrainedStatusBounds = constrainedStatusNode.getUnclippedBoundsInRoot()
-        val constrainedStatusWidth = constrainedStatusBounds.right - constrainedStatusBounds.left
-        val constrainedStatusHeight = constrainedStatusBounds.bottom - constrainedStatusBounds.top
-        assertTrue(abs((constrainedStatusWidth - naturalStatusWidth).value) <= 1f)
-        assertTrue(abs((constrainedStatusHeight - naturalStatusHeight).value) <= 1f)
-        listOf(constrainedTitleBounds, constrainedStatusBounds).forEach { bounds ->
-            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
-        }
-        assertTrue(constrainedTitleBounds.right <= constrainedStatusBounds.left)
-
-        val actionNode = compose.onNodeWithText("Open full-screen access")
-        actionNode.assertHasClickAction().performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(1, actionClicks) }
-    }
 
     private fun draftWith(vararg times: EditorTime) = EditorDraft(
         id = 1L,
