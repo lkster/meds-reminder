@@ -1,5 +1,6 @@
 package com.example.medsreminder
 
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,8 +21,7 @@ import org.junit.runner.RunWith
 /** Proves a recreated History screen stays loading until its own real Room Flow emits. */
 @RunWith(AndroidJUnit4::class)
 class MainActivityHistoryLoadingTest {
-    @get:Rule
-    val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     private lateinit var database: AppDatabase
     private lateinit var targetContext: android.content.Context
@@ -42,12 +42,9 @@ class MainActivityHistoryLoadingTest {
             )
             database.occurrenceDao().insert(
                 AlarmOccurrenceEntity(
-                    id = "m12-history-occurrence",
-                    reminderTimeId = reminderId,
-                    kind = OccurrenceKind.BASE,
-                    scheduledAtEpochMillis = 1_785_960_000_000L,
-                    status = OccurrenceStatus.TAKEN,
-                    resolvedAtEpochMillis = 1_785_960_001_000L,
+                    id = "m12-history-occurrence", reminderTimeId = reminderId,
+                    kind = OccurrenceKind.BASE, scheduledAtEpochMillis = 1_785_960_000_000L,
+                    status = OccurrenceStatus.TAKEN, resolvedAtEpochMillis = 1_785_960_001_000L,
                 ),
             )
         }
@@ -63,33 +60,22 @@ class MainActivityHistoryLoadingTest {
     @Test
     fun recreatedHistoryTransitionsFromLoadingToRealRoomHistory() {
         compose.onNodeWithText("History").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) {
-            runCatching {
-                compose.onNodeWithText(medicationName).assertExists()
-            }.isSuccess
-        }
+        compose.waitUntil(timeoutMillis = 5_000) { runCatching { compose.onNodeWithText(medicationName).assertExists() }.isSuccess }
 
         HistoryLoadingTestHook.configure(targetContext, holdBeforeCollection = true)
         compose.activityRule.scenario.recreate()
 
-        compose.waitUntil(timeoutMillis = 5_000) {
-            HistoryLoadingTestHook.beforeCollectionReached(targetContext)
-        }
+        compose.waitUntil(timeoutMillis = 5_000) { HistoryLoadingTestHook.beforeCollectionReached(targetContext) }
         compose.onNodeWithText("History").assertExists()
-        compose.onNodeWithText("Loading history…").assertExists()
+        compose.onNodeWithText("Loading history\u2026").assertExists()
+        compose.onNodeWithText("All").assertIsNotEnabled()
         compose.onNodeWithText("No history yet").assertDoesNotExist()
         compose.onNodeWithText(medicationName).assertDoesNotExist()
 
         HistoryLoadingTestHook.releaseCollection(targetContext)
-        compose.waitUntil(timeoutMillis = 5_000) {
-            HistoryLoadingTestHook.firstRoomEmissionReceived(targetContext)
-        }
-        compose.waitUntil(timeoutMillis = 5_000) {
-            runCatching {
-                compose.onNodeWithText(medicationName).assertExists()
-            }.isSuccess
-        }
-        compose.onNodeWithText("Loading history…").assertDoesNotExist()
+        compose.waitUntil(timeoutMillis = 5_000) { HistoryLoadingTestHook.firstRoomEmissionReceived(targetContext) }
+        compose.waitUntil(timeoutMillis = 5_000) { runCatching { compose.onNodeWithText(medicationName).assertExists() }.isSuccess }
+        compose.onNodeWithText("Loading history\u2026").assertDoesNotExist()
         compose.onNodeWithText("No history yet").assertDoesNotExist()
     }
 }
