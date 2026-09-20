@@ -27,7 +27,7 @@ class MainActivityMedicationListLoadingTest {
         MedicationListLoadingTestHook.reset(targetContext)
         compose.waitUntil(timeoutMillis = 5_000) {
             runCatching {
-                compose.onNodeWithText("No medications yet.").assertExists()
+                compose.onNodeWithText("No medications yet").assertExists()
             }.isSuccess
         }
     }
@@ -50,7 +50,7 @@ class MainActivityMedicationListLoadingTest {
             MedicationListLoadingTestHook.beforeCollectionReached(targetContext)
         }
         compose.onNodeWithText("Loading medications…").assertExists()
-        compose.onNodeWithText("No medications yet.").assertDoesNotExist()
+        compose.onNodeWithText("No medications yet").assertDoesNotExist()
 
         MedicationListLoadingTestHook.releaseCollection(targetContext)
         compose.waitUntil(timeoutMillis = 5_000) {
@@ -58,6 +58,6 @@ class MainActivityMedicationListLoadingTest {
         }
         compose.waitForIdle()
         compose.onNodeWithText("Loading medications…").assertDoesNotExist()
-        compose.onNodeWithText("No medications yet.").assertExists()
+        compose.onNodeWithText("No medications yet").assertExists()
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
@@ -84,7 +85,7 @@ class SettingsScreensTest {
         compose.setContent { MedsReminderTheme { SettingsScreen(items(), "Morning Bell", true, 5, {}, {}, { sounds++ }, { vibration = it }, {}) } }
         compose.onNodeWithText("Morning Bell").assertIsDisplayed()
         compose.onNodeWithText("Alarm sound").performClick()
-        compose.onNodeWithContentDescription("Vibration").performClick()
+        compose.onNodeWithContentDescription("Vibration").assertIsOn().performClick()
         compose.runOnIdle { assertEquals(1, sounds); assertEquals(false, vibration) }
     }
 

@@ -1,17 +1,17 @@
-# Meds Reminder M28
+# Meds Reminder M29
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
 
-M28 redesigns the factual, read-only History browse surface using the existing Room facts. History
-groups occurrences by scheduled local day, supports All/Taken/Skipped/No response presentation
-filters, and distinguishes scheduled time from the existing recorded resolution time. It preserves
-After snooze context, handles loading, global-empty, and filter-empty states truthfully, and adds
-responsive/accessibility protections. History details/editing, final Today navigation/CTA,
-Medication/editor redesign, and AlarmActivity redesign remain deferred. The M15 Samsung Galaxy S23
-validation below remains historical evidence and was not repeated for this presentation-only milestone.
+M29 redesigns the Medication-library browse surface using existing Room facts. It adds
+presentation-only medication-name search, factual reminder schedule presentation, an Add FAB and
+first-run creation treatment, and distinct loading, global-empty, and search-empty states with
+responsive and accessibility protections. Medication editor/details redesign, delete-operation
+visual redesign, final Today navigation, AlarmActivity redesign, and Category C richer
+medication/schedule functionality remain deferred. The M15 Samsung Galaxy S23 validation below
+remains historical evidence and was not repeated for this presentation-only milestone.
 
 M3 adds global alarm behavior preferences. The app can use the current system-default alarm tone or
 an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,

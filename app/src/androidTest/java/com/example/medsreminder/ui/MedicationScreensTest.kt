@@ -2,6 +2,7 @@ package com.example.medsreminder.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
@@ -30,12 +31,14 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -94,7 +97,7 @@ class MedicationScreensTest {
         }
 
         val viewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
-        val titleBounds = compose.onNodeWithText("Meds Reminder").getUnclippedBoundsInRoot()
+        val titleBounds = compose.onNodeWithText("Medications").getUnclippedBoundsInRoot()
         val historyNode = compose.onNodeWithText("History")
         val historyBounds = historyNode.getUnclippedBoundsInRoot()
         assertEquals(360.dp, viewportBounds.right - viewportBounds.left)
@@ -105,7 +108,7 @@ class MedicationScreensTest {
         compose.runOnIdle { testFontScale = 2.0f }
 
         val largeTextViewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
-        val largeTextTitleBounds = compose.onNodeWithText("Meds Reminder").getUnclippedBoundsInRoot()
+        val largeTextTitleBounds = compose.onNodeWithText("Medications").getUnclippedBoundsInRoot()
         val largeTextHistoryNode = compose.onNodeWithText("History")
         val largeTextHistoryBounds = largeTextHistoryNode.getUnclippedBoundsInRoot()
         val largeTextSettingsNode = compose.onNodeWithContentDescription("Settings")
@@ -135,11 +138,11 @@ class MedicationScreensTest {
             CompositionLocalProvider(
                 LocalDensity provides Density(
                     density = currentPixelDensity,
-                    fontScale = 1.0f,
+                    fontScale = 2.0f,
                 ),
             ) {
                 MaterialTheme {
-                    Box(Modifier.width(360.dp).testTag("m21-medication-card-viewport")) {
+                    Box(Modifier.width(180.dp).testTag("m21-medication-card-viewport")) {
                         MedicationListScreen(
                             medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
                             onEdit = {}, onToggle = { medication, enabled -> toggled = medication to enabled },
@@ -162,12 +165,23 @@ class MedicationScreensTest {
         assertTrue(switchBounds.left >= viewportBounds.left && switchBounds.right <= viewportBounds.right)
         assertTrue(switchBounds.right - switchBounds.left >= 48.dp)
         assertTrue(nameBounds.right <= switchBounds.left)
-
         switchNode.performClick()
         compose.runOnIdle {
             assertEquals(item.medication.id, toggled?.first?.medication?.id)
             assertEquals(false, toggled?.second)
         }
+        val scheduleNode = compose.onNode(hasText("Every day", substring = true)).performScrollTo()
+        val scheduleBounds = scheduleNode.getUnclippedBoundsInRoot()
+        assertTrue(scheduleBounds.left >= viewportBounds.left && scheduleBounds.right <= viewportBounds.right)
+        val editNode = compose.onNodeWithContentDescription("Edit medication 1, $longName").performScrollTo()
+        val deleteNode = compose.onNodeWithContentDescription("Delete medication 1, $longName")
+        val editBounds = editNode.getUnclippedBoundsInRoot()
+        val deleteBounds = deleteNode.getUnclippedBoundsInRoot()
+        editNode.assertHasClickAction()
+        deleteNode.assertHasClickAction()
+        assertTrue(editBounds.left >= viewportBounds.left && editBounds.right <= viewportBounds.right)
+        assertTrue(deleteBounds.left >= viewportBounds.left && deleteBounds.right <= viewportBounds.right)
+        assertTrue(deleteBounds.top >= editBounds.bottom)
     }
 
     @Test
@@ -188,21 +202,22 @@ class MedicationScreensTest {
         }
 
         compose.onNodeWithText("Loading medications…").assertExists()
-        compose.onNodeWithText("No medications yet.").assertDoesNotExist()
+        compose.onNodeWithText("No medications yet").assertDoesNotExist()
         compose.onNodeWithText("Medicine").assertDoesNotExist()
-        compose.onNodeWithText("Add medication").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Add medication").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, addClicks) }
     }
 
     @Test
     fun emptyMedicationCollectionShowsConfirmedEmptyState() {
+        var addClicks = 0
         compose.setContent {
             MaterialTheme {
                 MedicationListScreen(
                     medications = emptyList(),
                     onHistory = {},
                     onSettings = {},
-                    onAdd = {},
+                    onAdd = { addClicks++ },
                     onEdit = {},
                     onToggle = { _, _ -> },
                     onDelete = {},
@@ -210,8 +225,144 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNodeWithText("No medications yet.").assertExists()
+        compose.onNodeWithText("No medications yet").assertExists()
         compose.onNodeWithText("Loading medications…").assertDoesNotExist()
+        compose.onNodeWithText("No matching medications").assertDoesNotExist()
+        compose.onNodeWithText("Add first medication").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Add medication").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, addClicks) }
+    }
+
+    @Test
+    fun medicationSearchFiltersTrimmedCaseInsensitiveNamesWithoutChangingItemIdentity() {
+        val first = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "Beta capsule")
+        val second = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = "Beta tablet")
+        val third = persistedMedication(mask = WeekdayMask.ALL, id = 43L, name = "Alpha capsule")
+        var toggled: MedicationWithTimes? = null
+
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(first, second, third), onHistory = {}, onSettings = {}, onAdd = {},
+                    onEdit = {}, onToggle = { item, _ -> toggled = item }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("medication-search").performTextInput("  BETA ")
+        val firstMatchBounds = compose.onNodeWithText("Beta capsule").getUnclippedBoundsInRoot()
+        val secondMatchBounds = compose.onNodeWithText("Beta tablet").getUnclippedBoundsInRoot()
+        compose.onNodeWithText("Alpha capsule").assertDoesNotExist()
+        assertTrue(firstMatchBounds.top < secondMatchBounds.top)
+        compose.onNodeWithContentDescription("Medication 2, Beta tablet, reminders").performClick()
+        compose.runOnIdle { assertEquals(second.medication.id, toggled?.medication?.id) }
+    }
+
+    @Test
+    fun clearingMedicationSearchRestoresSourceCollection() {
+        val first = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "Alpha capsule")
+        val second = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = "Beta tablet")
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(first, second), onHistory = {}, onSettings = {}, onAdd = {},
+                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("medication-search").performTextInput("alpha")
+        compose.onNodeWithText("Beta tablet").assertDoesNotExist()
+        val clearNode = compose.onNodeWithContentDescription("Clear medication search")
+        val clearBounds = clearNode.getUnclippedBoundsInRoot()
+        clearNode.assertHasClickAction().performClick()
+        assertTrue(clearBounds.right - clearBounds.left >= 48.dp)
+        assertTrue(clearBounds.bottom - clearBounds.top >= 48.dp)
+        compose.onNodeWithText("Alpha capsule").assertExists()
+        compose.onNodeWithText("Beta tablet").assertExists()
+    }
+
+    @Test
+    fun searchEmptyIsDistinctFromAuthoritativeGlobalEmpty() {
+        val item = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "Alpha capsule")
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
+                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("medication-search").performTextInput("missing")
+        compose.onNodeWithText("No matching medications").assertExists()
+        compose.onNodeWithText("No medications yet").assertDoesNotExist()
+        compose.onNodeWithText("Add first medication").assertDoesNotExist()
+        compose.onNodeWithTag("medication-search").assertExists()
+        compose.onNodeWithContentDescription("Add medication").assertExists()
+    }
+
+    @Test
+    fun medicationBrowseExposesPaneHeadingAndSinglePurposefulSearchAndAddSemantics() {
+        val item = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "Alpha capsule")
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
+                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Medications")).assertExists()
+        compose.onNode(
+            hasText("Medications").and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)),
+        ).assertExists()
+        compose.onNodeWithText("Search medications").assertExists()
+        compose.onAllNodesWithContentDescription("Search").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("Add medication").assertCountEquals(1)
+
+        compose.onNodeWithTag("medication-search").performTextInput("alpha")
+        compose.onAllNodesWithContentDescription("Clear medication search").assertCountEquals(1)
+    }
+
+    @Test
+    fun landscapeMedicationLibraryKeepsSearchLastCardActionsAndFabReachable() {
+        val first = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "First medication")
+        val second = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = "Second medication")
+        val last = persistedMedication(mask = WeekdayMask.ALL, id = 43L, name = "Last medication")
+        compose.setContent {
+            MaterialTheme {
+                Box(
+                    Modifier
+                        .width(640.dp)
+                        .height(240.dp)
+                        .testTag("m29-landscape-viewport"),
+                ) {
+                    MedicationListScreen(
+                        medications = listOf(first, second, last), onHistory = {}, onSettings = {}, onAdd = {},
+                        onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                    )
+                }
+            }
+        }
+
+        val viewportBounds = compose.onNodeWithTag("m29-landscape-viewport").getUnclippedBoundsInRoot()
+        compose.onNodeWithTag("medication-search").assertExists()
+        compose.onNodeWithText("First medication").assertExists()
+        val lastEdit = compose.onNodeWithContentDescription("Edit medication 3, Last medication").performScrollTo()
+        val lastDelete = compose.onNodeWithContentDescription("Delete medication 3, Last medication").performScrollTo()
+        val fab = compose.onNodeWithContentDescription("Add medication")
+        val lastEditBounds = lastEdit.getUnclippedBoundsInRoot()
+        val lastDeleteBounds = lastDelete.getUnclippedBoundsInRoot()
+        val fabBounds = fab.getUnclippedBoundsInRoot()
+        lastEdit.assertHasClickAction()
+        lastDelete.assertHasClickAction()
+        fab.assertHasClickAction()
+        listOf(lastEditBounds, lastDeleteBounds, fabBounds).forEach { bounds ->
+            assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
+            assertTrue(bounds.top >= viewportBounds.top && bounds.bottom <= viewportBounds.bottom)
+        }
     }
 
 
@@ -255,7 +406,7 @@ class MedicationScreensTest {
 
         compose.onNode(hasText("Mon Wed Fri", substring = true)).assertExists()
         compose.onNodeWithText("Loading medications…").assertDoesNotExist()
-        compose.onNodeWithText("No medications yet.").assertDoesNotExist()
+        compose.onNodeWithText("No medications yet").assertDoesNotExist()
     }
 
 
@@ -444,7 +595,6 @@ class MedicationScreensTest {
         }
 
         compose.onNodeWithContentDescription("Medication 1, Medicine, reminders").assertIsOn()
-        compose.onNodeWithContentDescription("Vibration").assertIsOff()
     }
 
     @Test

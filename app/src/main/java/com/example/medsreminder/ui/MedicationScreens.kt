@@ -3,19 +3,26 @@ package com.example.medsreminder.ui
 import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +49,9 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
@@ -124,85 +134,70 @@ fun MedicationListScreen(
     // first post-recreation Room Flow emission.
     var deleteCandidateId by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleteCandidateName by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val trimmedSearchQuery = searchQuery.trim()
+    val filteredMedications = medications?.let { source ->
+        if (trimmedSearchQuery.isBlank()) source else source.filter {
+            it.medication.name.contains(trimmedSearchQuery, ignoreCase = true)
+        }
+    }
+    val hasAuthoritativeMedications = medications?.isNotEmpty() == true
+    val hasNoSearchMatches = hasAuthoritativeMedications &&
+        trimmedSearchQuery.isNotBlank() && filteredMedications.isNullOrEmpty()
     fun clearDeleteCandidate() {
         deleteCandidateId = null
         deleteCandidateName = null
     }
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).semantics {
-            paneTitle = "Meds Reminder"
-        },
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .semantics { paneTitle = "Medications" },
     ) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                "Meds Reminder",
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onHistory) { Text("History") }
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Settings" },
-                ) { Icon(Icons.Outlined.Settings, contentDescription = null) }
+            MedicationListTopBar(onHistory = onHistory, onSettings = onSettings)
+            if (hasAuthoritativeMedications) {
+                MedicationSearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onClear = { searchQuery = "" },
+                )
             }
-        }
-        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add medication") }
-        when {
-            medications == null -> Text("Loading medications…")
-            medications.isEmpty() -> Text("No medications yet.")
-        }
-        medications?.forEachIndexed { index, item ->
-            val medicationNumber = index + 1
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            item.medication.name,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Switch(
-                            checked = item.medication.enabled,
-                            onCheckedChange = { onToggle(item, it) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Medication $medicationNumber, ${item.medication.name}, reminders"
-                            },
-                        )
-                    }
-                    item.medication.instructions?.let { Text(it) }
-                    item.reminderTimes.sortedBy { it.minuteOfDay }.forEach { reminder ->
-                        Text("${formatMinute(reminder.minuteOfDay)} — ${formatWeekdays(reminder.weekdayMask)}")
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onEdit(item) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Edit medication $medicationNumber, ${item.medication.name}"
-                            },
-                        ) { Text("Edit") }
-                        TextButton(
-                            onClick = {
-                                deleteCandidateId = item.medication.id
-                                deleteCandidateName = item.medication.name
-                            },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Delete medication $medicationNumber, ${item.medication.name}"
-                            },
-                        ) { Text("Delete") }
-                    }
+            when {
+                medications == null -> MedicationListLoadingState()
+                medications.isEmpty() -> MedicationListEmptyState(onAdd = onAdd)
+                hasNoSearchMatches -> MedicationSearchEmptyState()
+                else -> filteredMedications.orEmpty().forEachIndexed { index, item ->
+                    MedicationLibraryCard(
+                        item = item,
+                        medicationNumber = index + 1,
+                        onEdit = onEdit,
+                        onToggle = onToggle,
+                        onDeleteRequested = {
+                            deleteCandidateId = item.medication.id
+                            deleteCandidateName = item.medication.name
+                        },
+                    )
                 }
             }
+            if (hasAuthoritativeMedications) Spacer(Modifier.padding(bottom = 72.dp))
+        }
+        if (medications == null || hasAuthoritativeMedications) {
+            FloatingActionButton(
+                onClick = onAdd,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "Add medication" }
+                    .testTag("medication-add-fab"),
+            ) { Icon(Icons.Outlined.Add, contentDescription = null) }
         }
     }
 
@@ -219,6 +214,147 @@ fun MedicationListScreen(
             },
             dismissButton = { TextButton(onClick = ::clearDeleteCandidate) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun MedicationListTopBar(onHistory: () -> Unit, onSettings: () -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Medications",
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onHistory) { Text("History") }
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "Settings" },
+            ) { Icon(Icons.Outlined.Settings, contentDescription = null) }
+        }
+    }
+}
+
+@Composable
+private fun MedicationSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.fillMaxWidth().testTag("medication-search"),
+        label = { Text("Search medications") },
+        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(
+                    onClick = onClear,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics { contentDescription = "Clear medication search" },
+                ) { Icon(Icons.Outlined.Clear, contentDescription = null) }
+            }
+        } else {
+            null
+        },
+        singleLine = true,
+    )
+}
+
+@Composable
+private fun MedicationListLoadingState() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CircularProgressIndicator(modifier = Modifier.sizeIn(minWidth = 24.dp, minHeight = 24.dp))
+        Text("Loading medications…")
+    }
+}
+
+@Composable
+private fun MedicationListEmptyState(onAdd: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("No medications yet", style = MaterialTheme.typography.titleLarge)
+            Text("Add a medication and its reminder times to begin.")
+            Button(
+                onClick = onAdd,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            ) { Text("Add first medication") }
+        }
+    }
+}
+
+@Composable
+private fun MedicationSearchEmptyState() {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("No matching medications", style = MaterialTheme.typography.titleLarge)
+            Text("Try a different medication name.")
+        }
+    }
+}
+
+@Composable
+private fun MedicationLibraryCard(
+    item: MedicationWithTimes,
+    medicationNumber: Int,
+    onEdit: (MedicationWithTimes) -> Unit,
+    onToggle: (MedicationWithTimes, Boolean) -> Unit,
+    onDeleteRequested: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    item.medication.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Switch(
+                    checked = item.medication.enabled,
+                    onCheckedChange = { onToggle(item, it) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Medication $medicationNumber, ${item.medication.name}, reminders"
+                    },
+                )
+            }
+            item.reminderTimes.sortedBy { it.minuteOfDay }.forEach { reminder ->
+                Text("${formatMinute(reminder.minuteOfDay)} — ${formatWeekdays(reminder.weekdayMask)}")
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { onEdit(item) },
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "Edit medication $medicationNumber, ${item.medication.name}"
+                        },
+                ) { Text("Edit") }
+                TextButton(
+                    onClick = onDeleteRequested,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "Delete medication $medicationNumber, ${item.medication.name}"
+                        },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            }
+        }
     }
 }
 
