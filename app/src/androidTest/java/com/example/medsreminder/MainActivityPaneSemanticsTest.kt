@@ -59,7 +59,7 @@ class MainActivityPaneSemanticsTest {
         assertPaneTitle("Add medication")
         assertTitleHeading("Add medication")
         assertPaneTitleAbsent("Medications")
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
 
         assertPaneTitle("Medications")
         compose.onNodeWithContentDescription("Edit medication 1, $medicationName")
@@ -68,7 +68,7 @@ class MainActivityPaneSemanticsTest {
         assertPaneTitle("Edit medication")
         assertTitleHeading("Edit medication")
         assertPaneTitleAbsent("Medications")
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
 
         assertPaneTitle("Medications")
         compose.onNodeWithContentDescription("Settings").performClick()

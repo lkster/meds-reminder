@@ -2,15 +2,18 @@ package com.example.medsreminder.ui
 
 import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.sizeIn
@@ -20,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -50,6 +54,7 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -418,64 +423,93 @@ fun MedicationEditorScreen(
     val screenTitle = if (draft.id == null) "Add medication" else "Edit medication"
     // Consume Back while work is owned by the retained ViewModel so it cannot be abandoned.
     if (handleSystemBack) BackHandler { if (!mutationLocked) onCancel() }
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).semantics {
-            paneTitle = screenTitle
-        },
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .semantics { paneTitle = screenTitle },
     ) {
-        Text(
-            screenTitle,
-            modifier = Modifier.semantics { heading() },
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        OutlinedTextField(
-            value = draft.name,
-            onValueChange = { onDraftChange(draft.copy(name = it)) },
-            label = { Text("Medication name") },
-            singleLine = true,
-            isError = validation.blankName,
-            supportingText = if (validation.blankName) {
-                { Text("Enter a medication name", color = MaterialTheme.colorScheme.error) }
-            } else {
-                null
-            },
-            enabled = !mutationLocked,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = draft.instructions,
-            onValueChange = { onDraftChange(draft.copy(instructions = it)) },
-            label = { Text("Dose or instructions (optional)") },
-            enabled = !mutationLocked,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Enabled", style = MaterialTheme.typography.titleMedium)
-            Switch(
-                checked = draft.enabled,
-                onCheckedChange = { onDraftChange(draft.copy(enabled = it)) },
-                enabled = !mutationLocked,
-                modifier = Modifier.semantics {
-                    contentDescription = "Enable ${draft.name.ifBlank { "this medication" }} reminders"
-                },
-            )
-        }
-        Text("Reminder schedules", style = MaterialTheme.typography.titleMedium)
-        if (draft.id != null) {
-            Text(
-                "Removing a reminder and saving also deletes its history.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        draft.times.forEachIndexed { index, time ->
-            val reminderNumber = index + 1
-            val reminderTime = formatMinute(time.minuteOfDay)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+                .testTag("medication-editor-scroll"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onCancel,
+                    enabled = !mutationLocked,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics { contentDescription = "Back" },
+                ) { Icon(Icons.Outlined.ArrowBack, contentDescription = null) }
+                Text(
+                    screenTitle,
+                    modifier = Modifier.padding(start = 8.dp).semantics { heading() },
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
+
+            EditorSectionCard {
+                Text("Medication", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(
+                    value = draft.name,
+                    onValueChange = { onDraftChange(draft.copy(name = it)) },
+                    label = { Text("Medication name") },
+                    singleLine = true,
+                    isError = validation.blankName,
+                    supportingText = if (validation.blankName) {
+                        { Text("Enter a medication name", color = MaterialTheme.colorScheme.error) }
+                    } else null,
+                    enabled = !mutationLocked,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = draft.instructions,
+                    onValueChange = { onDraftChange(draft.copy(instructions = it)) },
+                    label = { Text("Instructions / notes (optional)") },
+                    enabled = !mutationLocked,
+                    modifier = Modifier.fillMaxWidth().testTag("medication-editor-instructions"),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Reminders enabled", style = MaterialTheme.typography.titleMedium)
+                        Text("Turn all medication reminders on or off.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(
+                        checked = draft.enabled,
+                        onCheckedChange = { onDraftChange(draft.copy(enabled = it)) },
+                        enabled = !mutationLocked,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Enable ${draft.name.ifBlank { "this medication" }} reminders"
+                        },
+                    )
+                }
+            }
+
+            Text("Reminders", style = MaterialTheme.typography.titleLarge)
+            if (draft.id != null) {
+                Text(
+                    "Removing a reminder and saving also deletes its history.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            draft.times.forEachIndexed { index, time ->
+                val reminderNumber = index + 1
+                val reminderTime = formatMinute(time.minuteOfDay)
+                EditorSectionCard {
+                    Text("Reminder $reminderNumber", style = MaterialTheme.typography.titleMedium)
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
                         OutlinedButton(
                             enabled = !mutationLocked,
@@ -492,9 +526,11 @@ fun MedicationEditorScreen(
                                     true,
                                 ).show()
                             },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Change reminder $reminderNumber time, currently $reminderTime"
-                            },
+                            modifier = Modifier
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .semantics {
+                                    contentDescription = "Change reminder $reminderNumber time, currently $reminderTime"
+                                },
                         ) { Text(reminderTime) }
                         if (draft.times.size > 1) {
                             TextButton(
@@ -502,9 +538,11 @@ fun MedicationEditorScreen(
                                 onClick = {
                                     onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
                                 },
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Remove reminder $reminderNumber at $reminderTime"
-                                },
+                                modifier = Modifier
+                                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                    .semantics {
+                                        contentDescription = "Remove reminder $reminderNumber at $reminderTime"
+                                    },
                             ) { Text("Remove") }
                         }
                     }
@@ -534,50 +572,79 @@ fun MedicationEditorScreen(
                     }
                 }
             }
-        }
-        if (validation.noReminders) {
-            Text(
-                "Add at least one reminder time",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        OutlinedButton(enabled = !mutationLocked, onClick = {
-            val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
-            onDraftChange(
-                draft.copy(times = draft.times + EditorTime(null, nextMinute, WeekdayMask.ALL)),
-            )
-        }) { Text("Add another time") }
-        Button(
-            onClick = { onSave(draft) },
-            enabled = validation.isValid && saveState.canStartSubmission,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (saveState is EditorSaveState.SavingRoom) "Saving…" else "Save") }
-        when (saveState) {
-            is EditorSaveState.SavingRoom -> Text("Saving medication…")
-            is EditorSaveState.CompletingAlarms -> Text("Saved. Updating alarms…")
-            is EditorSaveState.RoomFailure -> Text(
-                "Could not save: ${saveState.message}",
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            )
-            is EditorSaveState.PostCommitFailure -> {
+            if (validation.noReminders) {
                 Text(
-                    "Medication was saved, but alarm updates need retry: ${saveState.message}",
+                    "Add at least one reminder time",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            OutlinedButton(
+                enabled = !mutationLocked,
+                onClick = {
+                    val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
+                    onDraftChange(draft.copy(times = draft.times + EditorTime(null, nextMinute, WeekdayMask.ALL)))
+                },
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            ) { Text("Add reminder time") }
+            Button(
+                onClick = { onSave(draft) },
+                enabled = validation.isValid && saveState.canStartSubmission,
+                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("medication-editor-save"),
+            ) {
+                Text(
+                    if (saveState is EditorSaveState.SavingRoom || saveState is EditorSaveState.CompletingAlarms) {
+                        "Saving…"
+                    } else {
+                        "Save"
+                    },
+                )
+            }
+            when (saveState) {
+                is EditorSaveState.SavingRoom -> EditorProgress("Saving medication…")
+                is EditorSaveState.CompletingAlarms -> EditorProgress("Finishing alarm setup…")
+                is EditorSaveState.RoomFailure -> Text(
+                    "Could not save medication. Try again.",
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
-                Button(onClick = onRetryPostCommit, modifier = Modifier.fillMaxWidth()) {
-                    Text("Retry alarm update")
+                is EditorSaveState.PostCommitFailure -> {
+                    Text(
+                        "Medication was saved, but alarms could not be updated.",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    Button(
+                        onClick = onRetryPostCommit,
+                        modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
+                    ) { Text("Retry alarm update") }
                 }
+                EditorSaveState.Idle -> Unit
             }
-            EditorSaveState.Idle -> Unit
         }
-        OutlinedButton(
-            onClick = onCancel,
-            enabled = !mutationLocked,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Cancel") }
+    }
+}
+
+@Composable
+private fun EditorSectionCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun EditorProgress(message: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(modifier = Modifier.sizeIn(minWidth = 20.dp, minHeight = 20.dp))
+        Text(message, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

@@ -1,6 +1,8 @@
 package com.example.medsreminder.ui
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -51,6 +53,10 @@ class MedicationEditorLifecycleTest {
 
     @After
     fun tearDown() {
+        // Controlled operations wait for the test's explicit release. Unblock any failure path
+        // before closing the Activity or in-memory database.
+        control.releaseRoom.countDown()
+        control.releaseCompletion.countDown()
         scenario.close()
         MedicationEditorViewModelTestHook.factory = null
         database.close()
@@ -112,14 +118,37 @@ class MedicationEditorLifecycleTest {
         assertTrue(control.roomStarted.await(3, TimeUnit.SECONDS))
         val originalOwner = owner()
 
-        scenario.recreate()
+        var recreatedOwner: MedicationEditorViewModel? = null
+        var recreatedState: EditorSaveState? = null
+        val lifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, state: Bundle?) {
+                if (activity is MainActivity) {
+                    recreatedOwner = ViewModelProvider(activity)[MedicationEditorViewModel::class.java]
+                    recreatedState = recreatedOwner!!.saveState
+                    control.releaseRoom.countDown()
+                }
+            }
 
-        assertSame(originalOwner, owner())
-        assertTrue(owner().saveState is EditorSaveState.SavingRoom)
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        application.registerActivityLifecycleCallbacks(lifecycleCallbacks)
+        try {
+            scenario.recreate()
+        } finally {
+            application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
+        }
+
+        assertSame(originalOwner, recreatedOwner)
+        assertTrue(recreatedState is EditorSaveState.SavingRoom)
         onOwner { submit(); submit() }
         assertEquals(1, control.roomCalls.get())
 
-        control.releaseRoom.countDown()
         eventually { owner().draft == null }
         assertEquals(1, control.roomCalls.get())
         assertEquals(1, medicationCount())
@@ -134,15 +163,39 @@ class MedicationEditorLifecycleTest {
         val originalOwner = owner()
         assertEquals(1, medicationCount())
 
-        scenario.recreate()
+        var recreatedOwner: MedicationEditorViewModel? = null
+        var recreatedState: EditorSaveState? = null
+        val lifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, state: Bundle?) {
+                if (activity is MainActivity) {
+                    recreatedOwner = ViewModelProvider(activity)[MedicationEditorViewModel::class.java]
+                    recreatedState = recreatedOwner!!.saveState
+                    // Activity recreation has reached the new host while completion is still held.
+                    // Releasing here avoids making ActivityScenario.recreate depend on an arbitrary timeout.
+                    control.releaseCompletion.countDown()
+                }
+            }
 
-        assertSame(originalOwner, owner())
-        val recreatedState = owner().saveState as EditorSaveState.CompletingAlarms
-        assertEquals(committed.result, recreatedState.result)
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        application.registerActivityLifecycleCallbacks(lifecycleCallbacks)
+        try {
+            scenario.recreate()
+        } finally {
+            application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
+        }
+
+        assertSame(originalOwner, recreatedOwner)
+        assertEquals(committed.result, (recreatedState as EditorSaveState.CompletingAlarms).result)
         onOwner { submit() }
         assertEquals(1, control.roomCalls.get())
 
-        control.releaseCompletion.countDown()
         eventually { owner().draft == null }
         assertEquals(1, medicationCount())
     }
@@ -317,7 +370,7 @@ class MedicationEditorLifecycleTest {
             applyRoomEdit = { edit ->
                 roomCalls.incrementAndGet()
                 roomStarted.countDown()
-                if (holdRoom) check(releaseRoom.await(5, TimeUnit.SECONDS))
+                if (holdRoom) releaseRoom.await()
                 if (failRoomCalls > 0) {
                     failRoomCalls--
                     throw IllegalStateException("Room edit failed")
@@ -331,7 +384,7 @@ class MedicationEditorLifecycleTest {
             completeAlarms = {
                 completionCalls.incrementAndGet()
                 completionStarted.countDown()
-                if (holdCompletion) check(releaseCompletion.await(5, TimeUnit.SECONDS))
+                if (holdCompletion) releaseCompletion.await()
                 if (failCompletionCalls > 0) {
                     failCompletionCalls--
                     throw IllegalStateException("Alarm completion failed")

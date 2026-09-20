@@ -1,24 +1,25 @@
-# Meds Reminder M29
+# Meds Reminder M30
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
 
-M29 redesigns the Medication-library browse surface using existing Room facts. It adds
-presentation-only medication-name search, factual reminder schedule presentation, an Add FAB and
-first-run creation treatment, and distinct loading, global-empty, and search-empty states with
-responsive and accessibility protections. Medication editor/details redesign, delete-operation
-visual redesign, final Today navigation, AlarmActivity redesign, and Category C richer
-medication/schedule functionality remain deferred. The M15 Samsung Galaxy S23 validation below
-remains historical evidence and was not repeated for this presentation-only milestone.
+M30 redesigns the Add/Edit Medication editor around the facts already persisted by Room: medication
+name, instructions/notes, medication-wide reminder enablement, reminder times, and weekday masks.
+It adds a safe-drawing and IME-aware secondary-screen shell, responsive reminder actions, truthful
+Save progress/failure presentation, and toolbar Back for the existing idle-editor exit behavior.
+There is still no medication appearance/form, dose, richer schedule, start/end date, or recurrence
+UI; combined medication/reminder editing remains transitional. Idle editor exit continues to discard
+without an unsaved-changes dialog. The M15 Samsung Galaxy S23 validation below remains historical
+evidence and was not repeated because M30 does not change alarm delivery surfaces.
 
 M3 adds global alarm behavior preferences. The app can use the current system-default alarm tone or
 an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,
 and use a 5, 10, 15, or 30 minute Snooze duration. Sound cannot be disabled. Preferences are stored
 in credential-protected SharedPreferences and do not change the Room v2 schema.
 
-## M24 large-text alarm-readiness status reachability; M23 large-text weekday-selector reachability; M22 large-text Snooze-duration choice reachability; M21 long medication-name card-header Switch reachability; M20 primary-title Heading semantics; M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
+## M30 medication-editor redesign; M24 large-text alarm-readiness status reachability; M23 large-text weekday-selector reachability; M22 large-text Snooze-duration choice reachability; M21 long medication-name card-header Switch reachability; M20 primary-title Heading semantics; M19 large-text medication-list header action reachability; M18 editor save-failure live regions; M17 MainActivity accessibility pane semantics; M16 active-alarm overflow reachability; M15 Samsung Galaxy S23 physical alarm validation; M14 AlarmActivity loading; M13 context-aware accessibility semantics; M12 History loading, M11 medication-list loading, M10 editor draft restoration, M9 deletion boundary, M8 list-toggle commit boundary, M7 readiness, and M6 editor lifecycle
 
 Alarm-readiness capability headers now preserve the complete natural allocation of the `Required` / `Limited` status while the capability title wraps in the remaining width when text is large or horizontal space is constrained. Capability evaluation, readiness headings, detail/action copy, callbacks, Activity refresh, alarm behavior, persistence, and the established M19–M23 layout/accessibility contracts remain unchanged.
 

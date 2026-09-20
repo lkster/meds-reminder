@@ -387,6 +387,98 @@ class MedicationScreensTest {
     }
 
     @Test
+    fun redesignedEditorUsesTruthfulFieldsPaneSemanticsAndToolbarBack() {
+        var draft by mutableStateOf(
+            draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)).copy(instructions = "Instructions"),
+        )
+        var cancels = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(draft, { draft = it }, {}, { cancels++ })
+            }
+        }
+
+        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Edit medication")).assertExists()
+        compose.onNode(
+            hasText("Edit medication").and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)),
+        ).assertExists()
+        compose.onNodeWithText("Instructions / notes (optional)").assertExists()
+        compose.onAllNodesWithText("Dose or instructions (optional)").assertCountEquals(0)
+        compose.onNodeWithTag("medication-editor-instructions").performTextInput(" after food")
+        compose.runOnIdle { assertEquals(" after foodInstructions", draft.instructions) }
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.runOnIdle { assertEquals(1, cancels) }
+        compose.onAllNodesWithText("Cancel").assertCountEquals(0)
+    }
+
+    @Test
+    fun redesignedEditorLocksBackAndEnabledSwitchDuringSave() {
+        var enabledChanges = 0
+        val draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60))
+        compose.setContent {
+            MaterialTheme {
+                MedicationEditorScreen(
+                    draft = draft,
+                    onDraftChange = { enabledChanges++ },
+                    onSave = {},
+                    onCancel = {},
+                    saveState = EditorSaveState.CompletingAlarms(
+                        MedicationScheduleEditResult(1, emptyList(), false),
+                    ),
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Back").assertIsNotEnabled()
+        compose.onNodeWithTag("medication-editor-save").assertIsNotEnabled()
+        compose.onNodeWithText("Saving…").assertExists()
+        compose.onNodeWithText("Finishing alarm setup…").assertExists()
+        compose.onAllNodesWithText("Saved. Updating alarms…").assertCountEquals(0)
+        compose.runOnIdle { assertEquals(0, enabledChanges) }
+    }
+
+    @Test
+    fun redesignedEditorReflowsActionsAndKeepsSaveReachableAtLargeText() {
+        val draft = draftWith(
+            EditorTime(id = 11L, minuteOfDay = 8 * 60),
+            EditorTime(id = 12L, minuteOfDay = 20 * 60),
+        )
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2f)) {
+                MaterialTheme {
+                    Box(Modifier.width(240.dp).height(220.dp).testTag("m30-editor-viewport")) {
+                        MedicationEditorScreen(draft, {}, {}, {})
+                    }
+                }
+            }
+        }
+
+        val viewport = compose.onNodeWithTag("m30-editor-viewport").getUnclippedBoundsInRoot()
+        val back = compose.onNodeWithContentDescription("Back")
+        val backBounds = back.getUnclippedBoundsInRoot()
+        assertTrue(backBounds.right - backBounds.left >= 48.dp)
+        assertTrue(backBounds.bottom - backBounds.top >= 48.dp)
+
+        val time = compose.onNodeWithContentDescription("Change reminder 1 time, currently 08:00", true)
+        val remove = compose.onNodeWithContentDescription("Remove reminder 1 at 08:00", true)
+        time.performScrollTo()
+        remove.performScrollTo()
+        val timeBounds = time.getUnclippedBoundsInRoot()
+        val removeBounds = remove.getUnclippedBoundsInRoot()
+        assertTrue(timeBounds.right <= viewport.right && removeBounds.right <= viewport.right)
+        assertTrue(timeBounds.bottom - timeBounds.top >= 48.dp)
+        assertTrue(removeBounds.bottom - removeBounds.top >= 48.dp)
+        compose.onNodeWithContentDescription("Reminder 1 at 08:00, Monday", true).performScrollTo().assertExists()
+        val save = compose.onNodeWithTag("medication-editor-save")
+        save.performScrollTo().assertIsEnabled()
+        val saveBounds = save.getUnclippedBoundsInRoot()
+        assertTrue(saveBounds.bottom <= viewport.bottom)
+        assertTrue(saveBounds.bottom - saveBounds.top >= 48.dp)
+    }
+
+    @Test
     fun listRendersPersistedSelectedWeekdays() {
         val item = persistedMedication(MONDAY_WEDNESDAY_FRIDAY)
 
@@ -509,7 +601,7 @@ class MedicationScreensTest {
     @Test
     fun roomFailureIsPoliteLiveRegionAndSaveRemainsRetryable() {
         var saves = 0
-        val message = "Could not save: Room edit failed"
+        val message = "Could not save medication. Try again."
         compose.setContent {
             MaterialTheme {
                 MedicationEditorScreen(
@@ -533,7 +625,7 @@ class MedicationScreensTest {
     @Test
     fun postCommitFailureIsPoliteLiveRegionAndRetainsRetryAction() {
         var retries = 0
-        val message = "Medication was saved, but alarm updates need retry: Alarm completion failed"
+        val message = "Medication was saved, but alarms could not be updated."
         compose.setContent {
             MaterialTheme {
                 MedicationEditorScreen(
@@ -554,9 +646,9 @@ class MedicationScreensTest {
         compose.onNodeWithText(message)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertEquals(1, liveRegionNodeCount())
-        compose.onNodeWithText("Retry alarm update").assertHasClickAction().performClick()
+        compose.onNodeWithText("Retry alarm update").performScrollTo().assertHasClickAction().performClick()
         compose.onNodeWithText("Save").assertIsNotEnabled()
-        compose.onNodeWithText("Cancel").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Back").assertIsNotEnabled()
         compose.runOnIdle { assertEquals(1, retries) }
     }
 
@@ -628,18 +720,22 @@ class MedicationScreensTest {
 
     @Test
     fun editorEnabledSwitchHasMedicationContextAndToggleState() {
+        var draft by mutableStateOf(draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)))
         compose.setContent {
             MaterialTheme {
                 MedicationEditorScreen(
-                    draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60)),
-                    {},
+                    draft,
+                    { draft = it },
                     {},
                     {},
                 )
             }
         }
 
-        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOn()
+        val enabledSwitch = compose.onNodeWithContentDescription("Enable Medicine reminders")
+        enabledSwitch.assertIsOn().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(false, draft.enabled) }
+        compose.onNodeWithContentDescription("Enable Medicine reminders").assertIsOff().assertIsEnabled()
     }
 
     @Test
@@ -718,7 +814,7 @@ class MedicationScreensTest {
     }
 
     @Test
-    fun idleCancelInvokesEditorExitButBusyCancelIsDisabled() {
+    fun idleBackInvokesEditorExitButBusyBackIsDisabled() {
         var cancels = 0
         var busy by mutableStateOf(false)
         val draft = draftWith(EditorTime(id = 11L, minuteOfDay = 8 * 60))
@@ -733,10 +829,10 @@ class MedicationScreensTest {
                 )
             }
         }
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
         compose.runOnIdle { assertEquals(1, cancels) }
         compose.runOnIdle { busy = true }
-        compose.onNodeWithText("Cancel").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Back").assertIsNotEnabled()
     }
 
     @Test
