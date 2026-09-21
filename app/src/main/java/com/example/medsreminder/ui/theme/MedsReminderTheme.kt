@@ -45,6 +45,15 @@ object MedsReminderPalette {
         onAccent = Color(0xFF00382F), success = Color(0xFF6DD58F), warning = Color(0xFFFFB95C),
         error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
     )
+    /** Fixed alarm environment; this deliberately does not follow the system appearance. */
+    val alarm = SemanticPalette(isDark = true,
+        background = Color(0xFF071C22), surface = Color(0xFF0D2930), surfaceElevated = Color(0xFF163941),
+        surfaceContainer = Color(0xFF102E35), surfaceContainerHigh = Color(0xFF1A3D45),
+        textPrimary = Color(0xFFF0F8F8), textSecondary = Color(0xFFC1D1D3), textDisabled = Color(0xFF82989D),
+        borderSubtle = Color(0xFF5A858E), accent = Color(0xFF65E2CC), accentContainer = Color(0xFF174E4A),
+        onAccent = Color(0xFF003731), success = Color(0xFF79DDA2), warning = Color(0xFFFFC36B),
+        error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
+    )
 }
 
 data class SemanticPalette(
@@ -107,6 +116,32 @@ fun MedsReminderTheme(content: @Composable () -> Unit) {
                 WindowInsetsControllerCompat(window, view).apply {
                     isAppearanceLightStatusBars = !darkTheme
                     isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalMedsReminderColors provides MedsReminderColors(
+            palette.success, palette.warning, palette.textDisabled, palette.surfaceElevated,
+        ),
+    ) {
+        MaterialTheme(colorScheme = palette.colorScheme(), typography = MedsReminderTypography, shapes = MedsReminderShapes, content = content)
+    }
+}
+
+/** A dedicated alarm palette so lock-screen alarm presentation is always visually predictable. */
+@Composable
+fun AlarmTheme(content: @Composable () -> Unit) {
+    val palette = MedsReminderPalette.alarm
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            (view.context as? Activity)?.window?.let { window ->
+                window.statusBarColor = palette.background.toArgb()
+                window.navigationBarColor = palette.background.toArgb()
+                WindowInsetsControllerCompat(window, view).apply {
+                    isAppearanceLightStatusBars = false
+                    isAppearanceLightNavigationBars = false
                 }
             }
         }

@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -119,6 +120,53 @@ class AlarmActionReceiverSnoozeTest {
             .scheduledAlarms
             .mapNotNull { AlarmScheduler.occurrenceId(shadowOf(it.operation).savedIntent) }
         assertEquals(listOf(snooze.id), projectedIds.filter { it == snooze.id })
+    }
+
+    @Test
+    fun explicitAllowedDurationOverridesOnlyThisSnoozeAction() = runBlocking(Dispatchers.IO) {
+        database.occurrenceDao().insert(
+            AlarmOccurrenceEntity("alternate-original", reminderTimeId, OccurrenceKind.BASE, System.currentTimeMillis() - 1_000L, OccurrenceStatus.RINGING),
+        )
+        AlarmPreferences.setSnoozeMinutes(context, 5)
+        val actionIntent = shadowOf(
+            AlarmActionReceiver.pendingIntent(context, AlarmActionReceiver.ACTION_SNOOZE, "alternate-original", 15),
+        ).savedIntent
+        AlarmActionReceiver().onReceive(context, actionIntent)
+
+        val snooze = withTimeout(5_000L) {
+            var found: AlarmOccurrenceEntity? = null
+            while (found == null) {
+                found = database.occurrenceDao().getFutureScheduled(System.currentTimeMillis() - 1_000L)
+                    .singleOrNull { it.kind == OccurrenceKind.SNOOZE }
+                if (found == null) delay(10L)
+            }
+            requireNotNull(found)
+        }
+        val original = database.occurrenceDao().get("alternate-original")
+        assertEquals(OccurrenceStatus.SNOOZED, original?.status)
+        assertNotEquals("alternate-original", snooze.id)
+        assertEquals(OccurrenceKind.SNOOZE, snooze.kind)
+        assertEquals(original?.resolvedAtEpochMillis?.plus(15 * 60_000L), snooze.scheduledAtEpochMillis)
+        assertEquals(5, AlarmPreferences.read(context).snoozeMinutes)
+        val projectedIds = shadowOf(context.getSystemService(AlarmManager::class.java))
+            .scheduledAlarms
+            .mapNotNull { AlarmScheduler.occurrenceId(shadowOf(it.operation).savedIntent) }
+        assertEquals(listOf(snooze.id), projectedIds.filter { it == snooze.id })
+    }
+
+    @Test
+    fun invalidExplicitDurationDoesNotCommitSnooze() = runBlocking(Dispatchers.IO) {
+        database.occurrenceDao().insert(
+            AlarmOccurrenceEntity("invalid-original", reminderTimeId, OccurrenceKind.BASE, System.currentTimeMillis() - 1_000L, OccurrenceStatus.RINGING),
+        )
+        val actionIntent = shadowOf(
+            AlarmActionReceiver.pendingIntent(context, AlarmActionReceiver.ACTION_SNOOZE, "invalid-original", 7),
+        ).savedIntent
+        AlarmActionReceiver().onReceive(context, actionIntent)
+        delay(200L)
+
+        assertEquals(OccurrenceStatus.RINGING, database.occurrenceDao().get("invalid-original")?.status)
+        assertEquals(emptyList<AlarmOccurrenceEntity>(), database.occurrenceDao().getFutureScheduled(System.currentTimeMillis() - 1_000L))
     }
 
     private fun details(id: String) = OccurrenceDetails(

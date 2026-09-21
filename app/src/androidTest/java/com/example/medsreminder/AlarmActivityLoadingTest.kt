@@ -1,9 +1,13 @@
 package com.example.medsreminder
 
+import android.content.Intent
+
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
@@ -15,6 +19,7 @@ import com.example.medsreminder.data.MedicationEntity
 import com.example.medsreminder.data.OccurrenceKind
 import com.example.medsreminder.data.OccurrenceStatus
 import com.example.medsreminder.data.ReminderTimeEntity
+import com.example.medsreminder.alarm.AlarmPreferences
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -39,6 +44,7 @@ class AlarmActivityLoadingTest {
         targetContext = InstrumentationRegistry.getInstrumentation().targetContext
         database = AppDatabase.get(targetContext)
         database.clearAllTables()
+        AlarmPreferences.setSnoozeMinutes(targetContext, 5)
         AlarmActivityLoadingTestHook.reset(targetContext)
     }
 
@@ -61,9 +67,10 @@ class AlarmActivityLoadingTest {
         }
         compose.onNodeWithText("Loading alarm…").assertExists()
         compose.onNodeWithText(medicationName).assertDoesNotExist()
-        compose.onNodeWithText("Taken").assertDoesNotExist()
-        compose.onNodeWithText("Snooze").assertDoesNotExist()
-        compose.onNodeWithText("Skip").assertDoesNotExist()
+        compose.onNodeWithText("Mark as taken").assertDoesNotExist()
+        compose.onNodeWithText("Snooze 5 min").assertDoesNotExist()
+        compose.onNodeWithText("Skip this dose").assertDoesNotExist()
+        compose.onNodeWithContentDescription("More snooze options").assertDoesNotExist()
 
         AlarmActivityLoadingTestHook.releaseCollection(targetContext)
         compose.waitUntil(timeoutMillis = 5_000) {
@@ -74,9 +81,10 @@ class AlarmActivityLoadingTest {
         }
         compose.onNodeWithText("Loading alarm…").assertDoesNotExist()
         compose.onNodeWithText(medicationName).assertExists()
-        compose.onNodeWithText("Taken").assertHasClickAction()
-        compose.onNodeWithText("Snooze").assertHasClickAction()
-        compose.onNodeWithText("Skip").assertHasClickAction()
+        compose.onNodeWithText("Mark as taken").assertHasClickAction()
+        compose.onNodeWithText("Snooze 5 min").assertHasClickAction()
+        compose.onNodeWithText("Skip this dose").assertHasClickAction()
+        compose.onNodeWithContentDescription("More snooze options").assertHasClickAction()
     }
 
     @Test
@@ -114,7 +122,7 @@ class AlarmActivityLoadingTest {
         }
         compose.onNodeWithText("Loading alarm…").assertDoesNotExist()
         compose.onNodeWithText(oversizedMedicationName).assertIsDisplayed()
-        listOf("Taken", "Snooze", "Skip").forEach { action ->
+        listOf("Mark as taken", "Snooze 5 min", "Skip this dose").forEach { action ->
             compose.onNodeWithText(action).performScrollTo().assertIsDisplayed().assertHasClickAction()
         }
     }
@@ -140,7 +148,9 @@ class AlarmActivityLoadingTest {
         compose.waitUntil(timeoutMillis = 5_000) {
             runCatching { compose.onNodeWithText(firstMedicationName).assertExists() }.isSuccess
         }
-        compose.onNodeWithText("Skip").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Skip this dose").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("More snooze options").performClick()
+        compose.onNodeWithText("Snooze options").assertIsDisplayed()
 
         runBlocking {
             database.occurrenceDao().transition(
@@ -156,6 +166,65 @@ class AlarmActivityLoadingTest {
         }
         compose.onNodeWithText("Loading alarm…").assertDoesNotExist()
         compose.onNodeWithText(secondMedicationName).assertIsDisplayed()
+        compose.onNodeWithText("Snooze options").assertDoesNotExist()
+    }
+
+    @Test
+    fun takenUsesRoomOccurrenceInsteadOfStaleLaunchHintAndFinishesNaturally() {
+        seedRingingFixture("room-current", medicationName, "Take with water")
+        scenario = ActivityScenario.launch(
+            Intent(targetContext, AlarmActivity::class.java).putExtra("stale_session_occurrence_id", "stale-launch-id"),
+        )
+
+        waitForMedication(medicationName)
+        compose.onNodeWithText("Mark as taken").performClick()
+        waitForStatus("room-current", OccurrenceStatus.TAKEN)
+        waitForNaturalCompletion()
+        check(runBlocking { database.occurrenceDao().get("stale-launch-id") == null })
+    }
+
+    @Test
+    fun skipResolvesCurrentRoomOccurrenceAndFinishesNaturally() {
+        seedRingingFixture("skip-current", medicationName, "Take with water")
+        scenario = ActivityScenario.launch(AlarmActivity::class.java)
+
+        waitForMedication(medicationName)
+        compose.onNodeWithText("Skip this dose").performClick()
+        waitForStatus("skip-current", OccurrenceStatus.SKIPPED)
+        waitForNaturalCompletion()
+    }
+
+    @Test
+    fun configuredDefaultSnoozeIsTruthfulAndActionableAtActivityBoundary() {
+        AlarmPreferences.setSnoozeMinutes(targetContext, 15)
+        seedRingingFixture("default-snooze-current", medicationName, "Take with water")
+        scenario = ActivityScenario.launch(AlarmActivity::class.java)
+
+        waitForMedication(medicationName)
+        compose.onNodeWithText("Snooze 15 min").assertIsDisplayed().assertHasClickAction()
+        scenario?.close()
+        scenario = null
+    }
+
+    private fun waitForMedication(name: String) {
+        compose.waitUntil(timeoutMillis = 5_000) {
+            runCatching { compose.onNodeWithText(name).assertExists() }.isSuccess
+        }
+    }
+
+    private fun waitForStatus(occurrenceId: String, status: OccurrenceStatus) {
+        compose.waitUntil(timeoutMillis = 5_000) {
+            runBlocking { database.occurrenceDao().get(occurrenceId)?.status == status }
+        }
+    }
+
+    private fun waitForNaturalCompletion() {
+        compose.waitUntil(timeoutMillis = 5_000) {
+            if (scenario?.state == Lifecycle.State.DESTROYED) return@waitUntil true
+            var finishing = false
+            runCatching { scenario?.onActivity { finishing = it.isFinishing } }
+            finishing
+        }
     }
 
     private fun seedFixture(ringing: Boolean) {

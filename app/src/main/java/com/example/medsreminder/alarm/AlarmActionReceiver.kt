@@ -34,7 +34,14 @@ class AlarmActionReceiver : BroadcastReceiver() {
                 when (intent.action) {
                     ACTION_TAKEN -> resolve(context, occurrenceId, OccurrenceStatus.TAKEN)
                     ACTION_SKIP -> resolve(context, occurrenceId, OccurrenceStatus.SKIPPED)
-                    ACTION_SNOOZE -> snooze(context, occurrenceId)
+                    ACTION_SNOOZE -> {
+                        val requestedMinutes = explicitSnoozeMinutes(intent)
+                        if (requestedMinutes != null && requestedMinutes !in AlarmPreferences.ALLOWED_SNOOZE_MINUTES) {
+                            Log.w(TAG, "Ignoring invalid snooze duration: $requestedMinutes")
+                            return@launch
+                        }
+                        snooze(context, occurrenceId, requestedMinutes ?: AlarmPreferences.read(context).snoozeMinutes)
+                    }
                 }
             } catch (error: Throwable) {
                 Log.e(TAG, "Alarm action failed for $occurrenceId", error)
@@ -57,7 +64,7 @@ class AlarmActionReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun snooze(context: Context, occurrenceId: String) {
+    private suspend fun snooze(context: Context, occurrenceId: String, snoozeMinutes: Int) {
         val database = AppDatabase.get(context)
         val dao = database.occurrenceDao()
         val original = dao.getDetails(occurrenceId) ?: return
@@ -66,7 +73,6 @@ class AlarmActionReceiver : BroadcastReceiver() {
         val scheduler = AlarmScheduler(context)
         if (!scheduler.canScheduleExactAlarms()) return
 
-        val snoozeMinutes = AlarmPreferences.read(context).snoozeMinutes
         val actionNowMillis = System.currentTimeMillis()
         val snooze = createSnoozeOccurrence(
             original = original,
@@ -99,26 +105,34 @@ class AlarmActionReceiver : BroadcastReceiver() {
         const val ACTION_TAKEN = "com.example.medsreminder.action.TAKEN"
         const val ACTION_SNOOZE = "com.example.medsreminder.action.SNOOZE"
         const val ACTION_SKIP = "com.example.medsreminder.action.SKIP"
+        const val EXTRA_SNOOZE_MINUTES = "com.example.medsreminder.extra.SNOOZE_MINUTES"
 
         private const val TAG = "AlarmActionReceiver"
         private val ALLOWED_ACTIONS = setOf(ACTION_TAKEN, ACTION_SNOOZE, ACTION_SKIP)
 
-        fun pendingIntent(context: Context, action: String, occurrenceId: String): PendingIntent =
+        fun pendingIntent(
+            context: Context,
+            action: String,
+            occurrenceId: String,
+            snoozeMinutes: Int? = null,
+        ): PendingIntent =
             PendingIntent.getBroadcast(
                 context,
                 0,
                 Intent(context, AlarmActionReceiver::class.java).apply {
                     this.action = action
                     data = Uri.parse("medsreminder://alarm-action/${action.substringAfterLast('.')}/$occurrenceId")
+                    snoozeMinutes?.let { putExtra(EXTRA_SNOOZE_MINUTES, it) }
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-        fun send(context: Context, action: String, occurrenceId: String) {
+        fun send(context: Context, action: String, occurrenceId: String, snoozeMinutes: Int? = null) {
             context.sendBroadcast(
                 Intent(context, AlarmActionReceiver::class.java).apply {
                     this.action = action
                     data = Uri.parse("medsreminder://alarm-action/${action.substringAfterLast('.')}/$occurrenceId")
+                    snoozeMinutes?.let { putExtra(EXTRA_SNOOZE_MINUTES, it) }
                 },
             )
         }
@@ -128,6 +142,13 @@ class AlarmActionReceiver : BroadcastReceiver() {
             if (uri.scheme != "medsreminder" || uri.host != "alarm-action") return null
             return uri.pathSegments.takeIf { it.size == 2 }?.get(1)
         }
+
+        private fun explicitSnoozeMinutes(intent: Intent): Int? =
+            if (intent.hasExtra(EXTRA_SNOOZE_MINUTES)) {
+                intent.getIntExtra(EXTRA_SNOOZE_MINUTES, Int.MIN_VALUE)
+            } else {
+                null
+            }
     }
 }
 

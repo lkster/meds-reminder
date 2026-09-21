@@ -20,6 +20,17 @@ class MedsReminderThemeTest {
     }
 
     @Test
+    fun alarmPaletteIsFixedDarkAndReadable() {
+        val alarm = MedsReminderPalette.alarm
+        assertNotEquals(Color.Black, alarm.background)
+        assertNotEquals(alarm.surface, alarm.surfaceElevated)
+        assertNotEquals(MedsReminderPalette.light.background, alarm.background)
+        assertTrue(contrast(alarm.textPrimary, alarm.background) >= 4.5)
+        assertTrue(contrast(alarm.onAccent, alarm.accent) >= 4.5)
+        assertTrue(contrast(alarm.borderSubtle, alarm.surface) >= 3.0)
+    }
+
+    @Test
     fun importantTextPairsMeetContrastRequirement() {
         assertTrue(contrast(MedsReminderPalette.light.textPrimary, MedsReminderPalette.light.background) >= 4.5)
         assertTrue(contrast(MedsReminderPalette.light.textSecondary, MedsReminderPalette.light.surface) >= 4.5)

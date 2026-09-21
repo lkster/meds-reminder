@@ -1,18 +1,18 @@
-# Meds Reminder M30
+# Meds Reminder M31
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
 
-M30 redesigns the Add/Edit Medication editor around the facts already persisted by Room: medication
-name, instructions/notes, medication-wide reminder enablement, reminder times, and weekday masks.
-It adds a safe-drawing and IME-aware secondary-screen shell, responsive reminder actions, truthful
-Save progress/failure presentation, and toolbar Back for the existing idle-editor exit behavior.
-There is still no medication appearance/form, dose, richer schedule, start/end date, or recurrence
-UI; combined medication/reminder editing remains transitional. Idle editor exit continues to discard
-without an unsaved-changes dialog. The M15 Samsung Galaxy S23 validation below remains historical
-evidence and was not repeated because M30 does not change alarm delivery surfaces.
+M31 redesigns the Room-authoritative AlarmActivity as a fixed-dark alarm surface. It keeps loading
+truthful until the Activity receives its own current-ringing Room emission, then presents medication
+name, scheduled time, optional instructions, a primary Mark as taken action, configured-default
+Snooze, alternate 5/10/15/30-minute Snooze choices, and Skip this dose. Alternate choices apply to
+one action only and never modify the persisted Snooze preference. Room, AlarmManager, the ringing
+service, notification/session entry, and post-resolution task behavior retain their existing owners.
+The M15 Samsung Galaxy S23 validation below remains historical evidence and is not validation of
+the redesigned M31 AlarmActivity.
 
 M3 adds global alarm behavior preferences. The app can use the current system-default alarm tone or
 an explicit alarm tone returned by Android's system ringtone picker, enable or disable vibration,
