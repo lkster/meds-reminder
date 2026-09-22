@@ -1,9 +1,14 @@
-# Meds Reminder M31
+# Meds Reminder M32
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M32 converges the medication-library browse surface toward the approved M26 FINAL reference: a
+compact, high-fidelity content column, header, search field, medication cards, contextual actions,
+and floating add action. Existing Room-backed loading states, stable-ID enable/disable and deletion
+ownership, direct editor entry, and the medication domain model are unchanged.
 
 M31 redesigns the Room-authoritative AlarmActivity as a fixed-dark alarm surface. It keeps loading
 truthful until the Activity receives its own current-ringing Room emission, then presents medication

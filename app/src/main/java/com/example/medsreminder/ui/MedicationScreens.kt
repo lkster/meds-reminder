@@ -3,6 +3,7 @@ package com.example.medsreminder.ui
 import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -20,11 +23,14 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
@@ -33,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,8 +65,12 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.MoreVert
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.WeekdayMask
+import com.example.medsreminder.ui.theme.LocalMedsReminderColors
+import androidx.compose.ui.graphics.SolidColor
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -140,6 +151,7 @@ fun MedicationListScreen(
     var deleteCandidateId by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleteCandidateName by rememberSaveable { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var actionMenuMedicationId by rememberSaveable { mutableStateOf<Long?>(null) }
     val trimmedSearchQuery = searchQuery.trim()
     val filteredMedications = medications?.let { source ->
         if (trimmedSearchQuery.isBlank()) source else source.filter {
@@ -163,43 +175,52 @@ fun MedicationListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 24.dp, vertical = 18.dp),
         ) {
             MedicationListTopBar(onHistory = onHistory, onSettings = onSettings)
-            if (hasAuthoritativeMedications) {
+            Spacer(Modifier.height(20.dp))
+            if (medications == null || hasAuthoritativeMedications) {
                 MedicationSearchField(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     onClear = { searchQuery = "" },
+                    enabled = medications != null,
                 )
+                Spacer(Modifier.height(20.dp))
             }
             when {
                 medications == null -> MedicationListLoadingState()
                 medications.isEmpty() -> MedicationListEmptyState(onAdd = onAdd)
                 hasNoSearchMatches -> MedicationSearchEmptyState()
-                else -> filteredMedications.orEmpty().forEachIndexed { index, item ->
-                    MedicationLibraryCard(
-                        item = item,
-                        medicationNumber = index + 1,
-                        onEdit = onEdit,
-                        onToggle = onToggle,
-                        onDeleteRequested = {
-                            deleteCandidateId = item.medication.id
-                            deleteCandidateName = item.medication.name
-                        },
-                    )
+                else -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    filteredMedications.orEmpty().forEachIndexed { index, item ->
+                        MedicationLibraryCard(
+                            item = item,
+                            medicationNumber = index + 1,
+                            onEdit = onEdit,
+                            onToggle = onToggle,
+                            menuExpanded = actionMenuMedicationId == item.medication.id,
+                            onMenuExpandedChange = { expanded ->
+                                actionMenuMedicationId = item.medication.id.takeIf { expanded }
+                            },
+                            onDeleteRequested = {
+                                actionMenuMedicationId = null
+                                deleteCandidateId = item.medication.id
+                                deleteCandidateName = item.medication.name
+                            },
+                        )
+                    }
                 }
             }
-            if (hasAuthoritativeMedications) Spacer(Modifier.padding(bottom = 72.dp))
+            if (medications == null || hasAuthoritativeMedications) Spacer(Modifier.padding(bottom = 78.dp))
         }
         if (medications == null || hasAuthoritativeMedications) {
             FloatingActionButton(
                 onClick = onAdd,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(20.dp)
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .padding(24.dp)
+                    .sizeIn(minWidth = 58.dp, minHeight = 58.dp)
                     .semantics { contentDescription = "Add medication" }
                     .testTag("medication-add-fab"),
             ) { Icon(Icons.Outlined.Add, contentDescription = null) }
@@ -233,10 +254,15 @@ private fun MedicationListTopBar(onHistory: () -> Unit, onSettings: () -> Unit) 
         Text(
             "Medications",
             modifier = Modifier.semantics { heading() },
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onHistory) { Text("History") }
+            IconButton(
+                onClick = onHistory,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "History" },
+            ) { Icon(Icons.Outlined.History, contentDescription = null) }
             IconButton(
                 onClick = onSettings,
                 modifier = Modifier
@@ -252,58 +278,88 @@ private fun MedicationSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
+    enabled: Boolean,
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().testTag("medication-search"),
-        label = { Text("Search medications") },
-        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(
-                    onClick = onClear,
-                    modifier = Modifier
-                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        .semantics { contentDescription = "Clear medication search" },
-                ) { Icon(Icons.Outlined.Clear, contentDescription = null) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth().testTag("medication-search"),
+        ) { innerTextField ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .padding(start = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Box(Modifier.weight(1f)) {
+                    if (query.isEmpty()) {
+                        Text("Search medications", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    innerTextField()
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = onClear,
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics { contentDescription = "Clear medication search" },
+                    ) { Icon(Icons.Outlined.Clear, contentDescription = null) }
+                }
             }
-        } else {
-            null
-        },
-        singleLine = true,
-    )
+        }
+    }
 }
 
 @Composable
 private fun MedicationListLoadingState() {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        CircularProgressIndicator(modifier = Modifier.sizeIn(minWidth = 24.dp, minHeight = 24.dp))
-        Text("Loading medications…")
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Loading medications…", style = MaterialTheme.typography.bodyMedium)
+        repeat(3) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 78.dp),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {}
+        }
     }
 }
 
 @Composable
 private fun MedicationListEmptyState(onAdd: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("No medications yet", style = MaterialTheme.typography.titleLarge)
-            Text("Add a medication and its reminder times to begin.")
-            Button(
-                onClick = onAdd,
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-            ) { Text("Add first medication") }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("No medications yet", style = MaterialTheme.typography.titleLarge)
+        Text("Add a medication and its reminder times to begin.", style = MaterialTheme.typography.bodyMedium)
+        Button(
+            onClick = onAdd,
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+        ) { Text("Add first medication") }
     }
 }
 
 @Composable
 private fun MedicationSearchEmptyState() {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("No matching medications", style = MaterialTheme.typography.titleLarge)
-            Text("Try a different medication name.")
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("No matching medications", style = MaterialTheme.typography.titleMedium)
+        Text("Try a different medication name.", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -313,53 +369,82 @@ private fun MedicationLibraryCard(
     medicationNumber: Int,
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
+    menuExpanded: Boolean,
+    onMenuExpandedChange: (Boolean) -> Unit,
     onDeleteRequested: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 78.dp)
+            .clickable { onEdit(item) }
+            .semantics { contentDescription = "Edit medication $medicationNumber, ${item.medication.name}" },
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = LocalMedsReminderColors.current.surfaceElevated),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            val scheduleLines = compactScheduleLines(item)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.Top,
             ) {
-                Text(
-                    item.medication.name,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                Switch(
-                    checked = item.medication.enabled,
-                    onCheckedChange = { onToggle(item, it) },
-                    modifier = Modifier.semantics {
-                        contentDescription = "Medication $medicationNumber, ${item.medication.name}, reminders"
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(item.medication.name, style = MaterialTheme.typography.titleMedium)
+                    scheduleLines.forEach { line ->
+                        Text(
+                            line,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (!item.medication.enabled) {
+                        Text(
+                            "Reminders off",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-            item.reminderTimes.sortedBy { it.minuteOfDay }.forEach { reminder ->
-                Text("${formatMinute(reminder.minuteOfDay)} — ${formatWeekdays(reminder.weekdayMask)}")
-            }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { onEdit(item) },
+            Box {
+                IconButton(
+                    onClick = { onMenuExpandedChange(true) },
                     modifier = Modifier
                         .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        .semantics {
-                            contentDescription = "Edit medication $medicationNumber, ${item.medication.name}"
+                        .semantics { contentDescription = "Medication actions $medicationNumber, ${item.medication.name}" },
+                ) { Icon(Icons.Outlined.MoreVert, contentDescription = null) }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { onMenuExpandedChange(false) }) {
+                    DropdownMenuItem(
+                        text = { Text(if (item.medication.enabled) "Disable reminders" else "Enable reminders") },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onToggle(item, !item.medication.enabled)
                         },
-                ) { Text("Edit") }
-                TextButton(
-                    onClick = onDeleteRequested,
-                    modifier = Modifier
-                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        .semantics {
-                            contentDescription = "Delete medication $medicationNumber, ${item.medication.name}"
-                        },
-                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        onClick = onDeleteRequested,
+                    )
+                }
             }
         }
+    }
+}
+
+private fun compactScheduleLines(item: MedicationWithTimes): List<String> {
+    val reminders = item.reminderTimes.sortedBy { it.minuteOfDay }
+    if (reminders.isEmpty()) return listOf("No reminder times")
+    val masks = reminders.map { it.weekdayMask }.distinct()
+    return if (masks.size == 1) {
+        listOf(formatWeekdays(masks.single()), reminders.joinToString(" · ") { formatMinute(it.minuteOfDay) })
+    } else {
+        reminders.map { "${formatMinute(it.minuteOfDay)} · ${formatWeekdays(it.weekdayMask)}" }
     }
 }
 

@@ -83,7 +83,7 @@ class MainActivityPaneSemanticsTest {
         assertPaneTitle("Settings")
         compose.onNodeWithContentDescription("Back").performClick()
         assertPaneTitle("Medications")
-        compose.onNodeWithText("History").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         assertPaneTitle("History")
         assertTitleHeading("History")
         assertPaneTitleAbsent("Medications")

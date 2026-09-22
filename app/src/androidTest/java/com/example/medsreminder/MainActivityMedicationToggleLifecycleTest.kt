@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
@@ -68,10 +69,7 @@ class MainActivityMedicationToggleLifecycleTest {
             assertEquals(1, MedicationListToggleTestHook.phaseACalls(targetContext))
             assertEquals(1, MedicationListToggleTestHook.phaseBCalls(targetContext))
             compose.waitForIdle()
-            compose.onNodeWithContentDescription(
-                "Medication 1, Lifecycle medicine, reminders",
-                useUnmergedTree = true,
-            ).assertIsOff()
+            compose.onNodeWithText("Reminders off").assertExists()
         } finally {
             MedicationListToggleTestHook.releaseBeforeRoom(targetContext)
         }
@@ -156,14 +154,11 @@ class MainActivityMedicationToggleLifecycleTest {
 
     private fun toggleOff() {
         compose.waitForIdle()
-        compose.onNodeWithContentDescription(
-            "Medication 1, Lifecycle medicine, reminders",
-            useUnmergedTree = true,
-        )
+        compose.onNodeWithContentDescription("Medication actions 1, Lifecycle medicine")
             .performScrollTo()
             .assertHasClickAction()
-            .assertIsOn()
             .performTouchInput { click() }
+        compose.onNodeWithText("Disable reminders").performTouchInput { click() }
     }
 
     /**
@@ -179,16 +174,10 @@ class MainActivityMedicationToggleLifecycleTest {
                 activity.isMedicationListToggleTestControlActive(),
             )
         }
-        compose.onAllNodesWithContentDescription(
-            "Medication 1, Lifecycle medicine, reminders",
-            useUnmergedTree = true,
-        ).assertCountEquals(1)
-        compose.onNodeWithContentDescription(
-            "Medication 1, Lifecycle medicine, reminders",
-            useUnmergedTree = true,
-        )
+        compose.onAllNodesWithContentDescription("Medication actions 1, Lifecycle medicine")
+            .assertCountEquals(1)
+        compose.onNodeWithContentDescription("Medication actions 1, Lifecycle medicine")
             .assertHasClickAction()
-            .assertIsOn()
     }
 
     private fun enabled(): Boolean = runBlocking {

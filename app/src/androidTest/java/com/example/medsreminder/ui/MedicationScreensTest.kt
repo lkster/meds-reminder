@@ -98,7 +98,7 @@ class MedicationScreensTest {
 
         val viewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
         val titleBounds = compose.onNodeWithText("Medications").getUnclippedBoundsInRoot()
-        val historyNode = compose.onNodeWithText("History")
+        val historyNode = compose.onNodeWithContentDescription("History")
         val historyBounds = historyNode.getUnclippedBoundsInRoot()
         assertEquals(360.dp, viewportBounds.right - viewportBounds.left)
         historyNode.assertHasClickAction()
@@ -108,14 +108,12 @@ class MedicationScreensTest {
         compose.runOnIdle { testFontScale = 2.0f }
 
         val largeTextViewportBounds = compose.onNodeWithTag("m19-medication-list-viewport").getUnclippedBoundsInRoot()
-        val largeTextTitleBounds = compose.onNodeWithText("Medications").getUnclippedBoundsInRoot()
-        val largeTextHistoryNode = compose.onNodeWithText("History")
+        val largeTextHistoryNode = compose.onNodeWithContentDescription("History")
         val largeTextHistoryBounds = largeTextHistoryNode.getUnclippedBoundsInRoot()
         val largeTextSettingsNode = compose.onNodeWithContentDescription("Settings")
         val largeTextSettingsBounds = largeTextSettingsNode.getUnclippedBoundsInRoot()
         largeTextHistoryNode.assertHasClickAction()
         largeTextSettingsNode.assertHasClickAction()
-        assertTrue(largeTextHistoryBounds.top >= largeTextTitleBounds.bottom)
         assertTrue(
             largeTextHistoryBounds.left >= largeTextViewportBounds.left &&
                 largeTextHistoryBounds.right <= largeTextViewportBounds.right,
@@ -128,10 +126,10 @@ class MedicationScreensTest {
     }
 
     @Test
-    fun medicationCardLongNameKeepsEnabledSwitchReachableAtNarrowWidth() {
+    fun medicationCardLongNameKeepsOverflowAndDirectEditReachableAtNarrowWidth() {
         val longName = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
         val item = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = longName)
-        var toggled: Pair<MedicationWithTimes, Boolean>? = null
+        var edited: MedicationWithTimes? = null
 
         compose.setContent {
             val currentPixelDensity = LocalDensity.current.density
@@ -145,7 +143,7 @@ class MedicationScreensTest {
                     Box(Modifier.width(180.dp).testTag("m21-medication-card-viewport")) {
                         MedicationListScreen(
                             medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
-                            onEdit = {}, onToggle = { medication, enabled -> toggled = medication to enabled },
+                            onEdit = { edited = it }, onToggle = { _, _ -> },
                             onDelete = {},
                         )
                     }
@@ -153,35 +151,26 @@ class MedicationScreensTest {
             }
         }
 
-        val switchNode = compose.onNodeWithContentDescription(
-            "Medication 1, $longName, reminders",
-            useUnmergedTree = true,
-        ).performScrollTo()
+        val actionNode = compose.onNodeWithContentDescription("Medication actions 1, $longName").performScrollTo()
         val viewportBounds = compose.onNodeWithTag("m21-medication-card-viewport").getUnclippedBoundsInRoot()
         val nameBounds = compose.onNodeWithText(longName).getUnclippedBoundsInRoot()
-        val switchBounds = switchNode.getUnclippedBoundsInRoot()
+        val actionBounds = actionNode.getUnclippedBoundsInRoot()
 
-        switchNode.assertHasClickAction().assertIsOn()
-        assertTrue(switchBounds.left >= viewportBounds.left && switchBounds.right <= viewportBounds.right)
-        assertTrue(switchBounds.right - switchBounds.left >= 48.dp)
-        assertTrue(nameBounds.right <= switchBounds.left)
-        switchNode.performClick()
-        compose.runOnIdle {
-            assertEquals(item.medication.id, toggled?.first?.medication?.id)
-            assertEquals(false, toggled?.second)
-        }
+        actionNode.assertHasClickAction()
+        assertTrue(actionBounds.left >= viewportBounds.left && actionBounds.right <= viewportBounds.right)
+        assertTrue(actionBounds.right - actionBounds.left >= 48.dp)
         val scheduleNode = compose.onNode(hasText("Every day", substring = true)).performScrollTo()
         val scheduleBounds = scheduleNode.getUnclippedBoundsInRoot()
         assertTrue(scheduleBounds.left >= viewportBounds.left && scheduleBounds.right <= viewportBounds.right)
         val editNode = compose.onNodeWithContentDescription("Edit medication 1, $longName").performScrollTo()
-        val deleteNode = compose.onNodeWithContentDescription("Delete medication 1, $longName")
         val editBounds = editNode.getUnclippedBoundsInRoot()
-        val deleteBounds = deleteNode.getUnclippedBoundsInRoot()
         editNode.assertHasClickAction()
-        deleteNode.assertHasClickAction()
         assertTrue(editBounds.left >= viewportBounds.left && editBounds.right <= viewportBounds.right)
-        assertTrue(deleteBounds.left >= viewportBounds.left && deleteBounds.right <= viewportBounds.right)
-        assertTrue(deleteBounds.top >= editBounds.bottom)
+        editNode.performClick()
+        compose.runOnIdle { assertEquals(item.medication.id, edited?.medication?.id) }
+        actionNode.performClick()
+        compose.onNodeWithText("Disable reminders").assertHasClickAction()
+        compose.onNodeWithText("Delete").assertHasClickAction()
     }
 
     @Test
@@ -238,13 +227,13 @@ class MedicationScreensTest {
         val first = persistedMedication(mask = WeekdayMask.ALL, id = 41L, name = "Beta capsule")
         val second = persistedMedication(mask = WeekdayMask.ALL, id = 42L, name = "Beta tablet")
         val third = persistedMedication(mask = WeekdayMask.ALL, id = 43L, name = "Alpha capsule")
-        var toggled: MedicationWithTimes? = null
+        var edited: MedicationWithTimes? = null
 
         compose.setContent {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(first, second, third), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = {}, onToggle = { item, _ -> toggled = item }, onDelete = {},
+                    onEdit = { edited = it }, onToggle = { _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -254,8 +243,8 @@ class MedicationScreensTest {
         val secondMatchBounds = compose.onNodeWithText("Beta tablet").getUnclippedBoundsInRoot()
         compose.onNodeWithText("Alpha capsule").assertDoesNotExist()
         assertTrue(firstMatchBounds.top < secondMatchBounds.top)
-        compose.onNodeWithContentDescription("Medication 2, Beta tablet, reminders").performClick()
-        compose.runOnIdle { assertEquals(second.medication.id, toggled?.medication?.id) }
+        compose.onNodeWithContentDescription("Edit medication 2, Beta tablet").performClick()
+        compose.runOnIdle { assertEquals(second.medication.id, edited?.medication?.id) }
     }
 
     @Test
@@ -351,15 +340,15 @@ class MedicationScreensTest {
         compose.onNodeWithTag("medication-search").assertExists()
         compose.onNodeWithText("First medication").assertExists()
         val lastEdit = compose.onNodeWithContentDescription("Edit medication 3, Last medication").performScrollTo()
-        val lastDelete = compose.onNodeWithContentDescription("Delete medication 3, Last medication").performScrollTo()
+        val lastActions = compose.onNodeWithContentDescription("Medication actions 3, Last medication").performScrollTo()
         val fab = compose.onNodeWithContentDescription("Add medication")
         val lastEditBounds = lastEdit.getUnclippedBoundsInRoot()
-        val lastDeleteBounds = lastDelete.getUnclippedBoundsInRoot()
+        val lastActionsBounds = lastActions.getUnclippedBoundsInRoot()
         val fabBounds = fab.getUnclippedBoundsInRoot()
         lastEdit.assertHasClickAction()
-        lastDelete.assertHasClickAction()
+        lastActions.assertHasClickAction()
         fab.assertHasClickAction()
-        listOf(lastEditBounds, lastDeleteBounds, fabBounds).forEach { bounds ->
+        listOf(lastEditBounds, lastActionsBounds, fabBounds).forEach { bounds ->
             assertTrue(bounds.left >= viewportBounds.left && bounds.right <= viewportBounds.right)
             assertTrue(bounds.top >= viewportBounds.top && bounds.bottom <= viewportBounds.bottom)
         }
@@ -670,7 +659,7 @@ class MedicationScreensTest {
     }
 
     @Test
-    fun switchesKeepToggleStateAndExposeContextualLabels() {
+    fun medicationActionsExposeContextualLabels() {
         val item = persistedMedication(WeekdayMask.ALL)
         compose.setContent {
             MaterialTheme {
@@ -686,11 +675,11 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Medication 1, Medicine, reminders").assertIsOn()
+        compose.onNodeWithContentDescription("Medication actions 1, Medicine").assertHasClickAction()
     }
 
     @Test
-    fun medicationEnabledSwitchInvokesTheListToggleCallback() {
+    fun medicationActionMenuInvokesTheListToggleCallback() {
         val item = persistedMedication(WeekdayMask.ALL)
         var toggled: Pair<MedicationWithTimes, Boolean>? = null
         compose.setContent {
@@ -707,10 +696,8 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNodeWithContentDescription(
-            "Medication 1, Medicine, reminders",
-            useUnmergedTree = true,
-        ).assertHasClickAction().assertIsOn().performClick()
+        compose.onNodeWithContentDescription("Medication actions 1, Medicine").performClick()
+        compose.onNodeWithText("Disable reminders").performClick()
 
         compose.runOnIdle {
             assertEquals(item.medication.id, toggled?.first?.medication?.id)
@@ -754,17 +741,17 @@ class MedicationScreensTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Medication 1, Medicine, reminders", true)
-            .assertHasClickAction().assertIsOn()
-        compose.onNodeWithContentDescription("Medication 2, Medicine, reminders", true)
-            .assertHasClickAction().assertIsOn()
+        compose.onNodeWithContentDescription("Medication actions 1, Medicine")
+            .assertHasClickAction()
+        compose.onNodeWithContentDescription("Medication actions 2, Medicine")
+            .assertHasClickAction()
         compose.onNodeWithContentDescription("Edit medication 1, Medicine").assertHasClickAction()
         compose.onNodeWithContentDescription("Edit medication 2, Medicine").assertHasClickAction()
             .performScrollTo().performTouchInput { click() }
         compose.runOnIdle { assertEquals(2L, editedId) }
 
-        compose.onNodeWithContentDescription("Delete medication 1, Medicine").assertHasClickAction()
-        compose.onNodeWithContentDescription("Delete medication 2, Medicine").performScrollTo().performTouchInput { click() }
+        compose.onNodeWithContentDescription("Medication actions 2, Medicine").performScrollTo().performTouchInput { click() }
+        compose.onNodeWithText("Delete").performTouchInput { click() }
         compose.onNodeWithText("Delete Medicine?").assertExists()
         compose.onNode(
             hasText("Delete") and hasClickAction() and hasAnyAncestor(isDialog()),

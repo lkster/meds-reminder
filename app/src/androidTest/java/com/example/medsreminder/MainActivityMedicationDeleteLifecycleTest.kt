@@ -4,6 +4,8 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
@@ -140,22 +142,22 @@ class MainActivityMedicationDeleteLifecycleTest {
 
     private fun openDeleteConfirmation() {
         // The fixture reaches this screen through the production Room Flow. Wait for its unique
-        // row and its sole card action rather than racing the initial Flow emission.
+        // row and its contextual action rather than racing the initial Flow emission.
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Lifecycle medicine").fetchSemanticsNodes().isNotEmpty() &&
-                compose.onAllNodesWithText("Delete").fetchSemanticsNodes().size == 1
+                compose.onAllNodesWithContentDescription("Medication actions 1, Lifecycle medicine")
+                    .fetchSemanticsNodes().size == 1
         }
         compose.waitForIdle()
-        compose.onNodeWithText("Delete")
+        compose.onNodeWithContentDescription("Medication actions 1, Lifecycle medicine")
             .performScrollTo().assertHasClickAction().performTouchInput { click() }
+        compose.onNodeWithText("Delete").performTouchInput { click() }
         compose.onNodeWithText("Delete Lifecycle medicine?").assertExists()
     }
 
     private fun confirmDelete() {
         openDeleteConfirmation()
-        // The card's Delete action remains in the tree behind the dialog; the dialog confirmation
-        // is the second real button and is the acceptance boundary under test.
-        compose.onAllNodesWithText("Delete")[1].performTouchInput { click() }
+        compose.onNodeWithText("Delete").performTouchInput { click() }
     }
 
     private fun medicationExists(): Boolean = runBlocking { database.medicationDao().get(medicationId) != null }
