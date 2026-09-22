@@ -266,10 +266,10 @@ class HistoryScreenTest {
             }
         }
 
-        compose.onNodeWithText("History").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         compose.onNodeWithText("No history yet").assertExists()
         compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithText("Meds Reminder").assertExists()
+        compose.onNodeWithText("Medications").assertExists()
     }
 
     @Test
@@ -286,6 +286,7 @@ class HistoryScreenTest {
                 MedicationListScreen(listOf(medication()), {}, {}, {}, {}, { _, _ -> }, {})
             }
         }
+        compose.onNodeWithContentDescription("Medication actions 1, Medicine").performClick()
         compose.onNodeWithText("Delete").performClick()
         compose.onNodeWithText("Its reminder times, pending alarms, and history will be removed.").assertExists()
     }

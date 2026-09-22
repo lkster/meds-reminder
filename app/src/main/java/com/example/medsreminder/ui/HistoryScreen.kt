@@ -8,24 +8,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,12 +39,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import com.example.medsreminder.data.HistoryOccurrence
 import com.example.medsreminder.data.OccurrenceKind
 import com.example.medsreminder.data.OccurrenceStatus
@@ -146,13 +152,13 @@ fun HistoryScreen(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 24.dp)
             .semantics { paneTitle = "History" },
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 28.dp),
     ) {
         item { HistoryTopBar(onBack) }
         if (history == null || history.isNotEmpty()) {
+            item { Spacer(Modifier.height(20.dp)) }
             item {
                 HistoryFilters(
                     selectedFilter = selectedFilter,
@@ -162,18 +168,36 @@ fun HistoryScreen(
             }
         }
         when {
-            history == null -> item { HistoryLoading() }
-            history.isEmpty() -> item { HistoryGlobalEmpty() }
-            dayGroups.isEmpty() -> item { HistoryFilterEmpty { selectedFilter = HistoryFilter.ALL } }
-            else -> dayGroups.forEach { group ->
+            history == null -> {
+                item { Spacer(Modifier.height(24.dp)) }
+                item { HistoryLoading() }
+            }
+            history.isEmpty() -> {
+                item { Spacer(Modifier.height(64.dp)) }
+                item { HistoryGlobalEmpty() }
+            }
+            dayGroups.isEmpty() -> {
+                item { Spacer(Modifier.height(28.dp)) }
+                item { HistoryFilterEmpty { selectedFilter = HistoryFilter.ALL } }
+            }
+            else -> dayGroups.forEachIndexed { groupIndex, group ->
+                item { Spacer(Modifier.height(if (groupIndex == 0) 24.dp else 26.dp)) }
                 item(key = "day-${group.date}") {
                     Text(
                         formatHistoryDay(group.date),
                         modifier = Modifier.semantics { heading() },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
-                items(group.items, key = HistoryItem::id) { item -> HistoryCard(item, zoneId) }
+                item { Spacer(Modifier.height(9.dp)) }
+                group.items.forEachIndexed { itemIndex, item ->
+                    item(key = item.id) {
+                        Column {
+                            HistoryCard(item, zoneId)
+                            if (itemIndex != group.items.lastIndex) Spacer(Modifier.height(11.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -190,7 +214,7 @@ private fun HistoryTopBar(onBack: () -> Unit) {
         Text(
             "History",
             modifier = Modifier.semantics { heading() },
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
         )
     }
 }
@@ -206,12 +230,47 @@ private fun HistoryFilters(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HistoryFilter.entries.forEach { filter ->
-            FilterChip(
+            HistoryFilterPill(
+                filter = filter,
                 selected = selectedFilter == filter,
-                onClick = { onSelected(filter) },
                 enabled = enabled,
-                modifier = Modifier.sizeIn(minHeight = 48.dp),
-                label = { Text(filter.label) },
+                onSelected = onSelected,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryFilterPill(
+    filter: HistoryFilter,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelected: (HistoryFilter) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .sizeIn(minHeight = 48.dp)
+            .semantics(mergeDescendants = true) {}
+            .clip(MaterialTheme.shapes.extraLarge)
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.Tab,
+                onClick = { onSelected(filter) },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = if (selected) colors.primaryContainer else colors.surface,
+            contentColor = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+            shape = MaterialTheme.shapes.extraLarge,
+            border = if (selected) null else BorderStroke(1.dp, colors.outlineVariant),
+        ) {
+            Text(
+                filter.label,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                style = MaterialTheme.typography.labelLarge,
             )
         }
     }
@@ -226,22 +285,64 @@ private fun HistoryCard(item: HistoryItem, zoneId: ZoneId) {
         HistoryOutcome.NO_RESPONSE -> MaterialTheme.colorScheme.error
     }
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 80.dp),
+        colors = CardDefaults.cardColors(containerColor = statusColors.surfaceElevated),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(item.medicationName, style = MaterialTheme.typography.titleMedium)
-            Text(formatHistoryScheduledTime(item.scheduledAtEpochMillis, zoneId), style = MaterialTheme.typography.bodyMedium)
-            Text(item.outcome.label, color = outcomeColor, style = MaterialTheme.typography.labelLarge)
-            formatHistoryResult(item, zoneId)?.let { result ->
-                Text(result, style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    item.medicationName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.padding(start = 8.dp))
+                HistoryOutcomePill(item.outcome.label, outcomeColor)
             }
-            if (item.afterSnooze) Text("After snooze", style = MaterialTheme.typography.bodySmall)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    formatHistoryScheduledTime(item.scheduledAtEpochMillis, zoneId),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                formatHistoryResult(item, zoneId)?.let { result ->
+                    Text(
+                        result,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (item.afterSnooze) {
+                    Text(
+                        "After snooze",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun HistoryOutcomePill(label: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.12f),
+        contentColor = color,
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+        )
     }
 }
 
@@ -251,7 +352,7 @@ private fun HistoryLoading() {
         Text("Loading history\u2026", style = MaterialTheme.typography.bodyMedium)
         repeat(3) {
             Box(
-                Modifier.fillMaxWidth().height(108.dp).clip(MaterialTheme.shapes.medium)
+                Modifier.fillMaxWidth().height(80.dp).clip(MaterialTheme.shapes.large)
                     .background(MaterialTheme.colorScheme.surfaceContainer)
                     .clearAndSetSemantics {},
             )
@@ -262,7 +363,7 @@ private fun HistoryLoading() {
 @Composable
 private fun HistoryGlobalEmpty() {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("No history yet", style = MaterialTheme.typography.titleLarge)
+        Text("No history yet", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold))
         Text("Resolved medication reminders will appear here.", style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -270,7 +371,7 @@ private fun HistoryGlobalEmpty() {
 @Composable
 private fun HistoryFilterEmpty(onShowAll: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("No entries for this filter", style = MaterialTheme.typography.titleLarge)
+        Text("No entries for this filter", style = MaterialTheme.typography.titleMedium)
         TextButton(onClick = onShowAll, modifier = Modifier.sizeIn(minHeight = 48.dp)) { Text("Show all") }
     }
 }

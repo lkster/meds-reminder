@@ -2,6 +2,7 @@ package com.example.medsreminder
 
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -59,7 +60,7 @@ class MainActivityHistoryLoadingTest {
 
     @Test
     fun recreatedHistoryTransitionsFromLoadingToRealRoomHistory() {
-        compose.onNodeWithText("History").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         compose.waitUntil(timeoutMillis = 5_000) { runCatching { compose.onNodeWithText(medicationName).assertExists() }.isSuccess }
 
         HistoryLoadingTestHook.configure(targetContext, holdBeforeCollection = true)

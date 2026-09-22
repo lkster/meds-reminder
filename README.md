@@ -1,9 +1,14 @@
-# Meds Reminder M32
+# Meds Reminder M33
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M33 converges the existing Room-backed History browse surface toward the approved M26 FINAL History
+reference through a compact 24dp content column, lighter filters, tighter scheduled-day/event rhythm,
+compact factual status/event presentation, and converged loading/empty states. It preserves scheduled-day
+identity, factual outcome semantics, independent History loading, and read-only History ownership.
 
 M32 converges the medication-library browse surface toward the approved M26 FINAL reference: a
 compact, high-fidelity content column, header, search field, medication cards, contextual actions,
