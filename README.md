@@ -1,9 +1,14 @@
-# Meds Reminder M33
+# Meds Reminder M34
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M34 converges the existing Settings / Alarm Readiness flow toward the approved M26 FINAL reference through
+a faithful secondary-screen shell, compact grouped Alarm settings, clearer readiness hierarchy, denser factual
+capability rows, and a converged Default Snooze sheet. MainActivity capability/preference ownership, existing
+Android settings and native picker interactions, and readiness semantics are unchanged.
 
 M33 converges the existing Room-backed History browse surface toward the approved M26 FINAL History
 reference through a compact 24dp content column, lighter filters, tighter scheduled-day/event rhythm,

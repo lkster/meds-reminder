@@ -51,6 +51,37 @@ class SettingsScreensTest {
     }
 
     @Test
+    fun settingsReadinessSummaryRemainsAnActionableEntry() {
+        var opened = 0
+        compose.setContent {
+            MedsReminderTheme {
+                SettingsScreen(items(notifications = false), "System default", true, 10, {}, { opened++ }, {}, {}, {})
+            }
+        }
+
+        compose.onNodeWithText("Alarm readiness").assertHasClickAction().performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test
+    fun settingsRowsKeepLargeTargetsAndLongSoundLabelReachable() {
+        val longSoundName = "System default alarm tone with a long device-provided label"
+        compose.setContent {
+            MedsReminderTheme {
+                Box(Modifier.width(360.dp)) {
+                    SettingsScreen(items(), longSoundName, true, 10, {}, {}, {}, {}, {})
+                }
+            }
+        }
+
+        compose.onNodeWithText(longSoundName).assertIsDisplayed()
+        val soundBounds = compose.onNodeWithText("Alarm sound").assertHasClickAction().getUnclippedBoundsInRoot()
+        val snoozeBounds = compose.onNodeWithText("Default Snooze").assertHasClickAction().getUnclippedBoundsInRoot()
+        assertTrue(soundBounds.bottom - soundBounds.top >= 48.dp)
+        assertTrue(snoozeBounds.bottom - snoozeBounds.top >= 48.dp)
+    }
+
+    @Test
     fun readinessScreenAlwaysShowsFourCapabilities() {
         compose.setContent { MedsReminderTheme { AlarmReadinessScreen(items(), false, {}, {}) } }
         listOf("Notifications", "Alarm notifications", "Exact alarms", "Full-screen alarm").forEach {
@@ -93,7 +124,7 @@ class SettingsScreensTest {
     fun readyDetailKeepsAllCapabilityRowsAndTextualReadyState() {
         compose.setContent { MedsReminderTheme { AlarmReadinessScreen(items(), false, {}, {}) } }
         compose.onNodeWithText("Everything is ready").assertIsDisplayed()
-        compose.onAllNodesWithText("Ready").assertCountEquals(5)
+        compose.onAllNodesWithText("Ready").assertCountEquals(4)
         listOf("Notifications", "Alarm notifications", "Exact alarms", "Full-screen alarm").forEach {
             compose.onNodeWithText(it).assertIsDisplayed()
         }
@@ -110,7 +141,7 @@ class SettingsScreensTest {
             CapabilityItem("Full-screen alarm", false, "Full-screen access unavailable", "Open full-screen access", { fullScreen++ }, false),
         )
         compose.setContent { MedsReminderTheme { AlarmReadinessScreen(values, false, {}, {}) } }
-        compose.onAllNodesWithText("Needs attention").assertCountEquals(2)
+        compose.onAllNodesWithText("Needs attention").assertCountEquals(1)
         compose.onNodeWithText("Allow notifications").performClick()
         compose.onNodeWithText("Open full-screen access").performClick()
         compose.runOnIdle { assertEquals(1, required); assertEquals(1, fullScreen) }
@@ -126,7 +157,7 @@ class SettingsScreensTest {
         )
         compose.setContent { MedsReminderTheme { AlarmReadinessScreen(values, false, {}, {}) } }
         compose.onNodeWithText("Alarm setup is limited").assertIsDisplayed()
-        compose.onAllNodesWithText("Limited").assertCountEquals(2)
+        compose.onAllNodesWithText("Limited").assertCountEquals(1)
         compose.onNodeWithText("Full-screen alarm").assertIsDisplayed()
         compose.onNodeWithText("Actionable alarm notifications remain available, but full-screen presentation is unavailable.").assertIsDisplayed()
         compose.onNodeWithText("Open full-screen access").assertHasClickAction()
@@ -164,7 +195,7 @@ class SettingsScreensTest {
         compose.setContent { MedsReminderTheme { AlarmReadinessScreen(values, false, {}, {}) } }
 
         compose.onNodeWithText("Alarm readiness").assertIsDisplayed()
-        compose.onAllNodesWithText("Needs attention").assertCountEquals(2)
+        compose.onAllNodesWithText("Needs attention").assertCountEquals(1)
         compose.onNodeWithText("Notifications").assertIsDisplayed()
         compose.onNodeWithText("Allow notifications").assertHasClickAction().performClick()
         compose.onNodeWithContentDescription("Back").assertHasClickAction()
@@ -182,9 +213,9 @@ class SettingsScreensTest {
             }
         }
 
-        compose.onAllNodesWithText("Limited").assertCountEquals(2)
+        compose.onAllNodesWithText("Limited").assertCountEquals(1)
         compose.runOnIdle { showSamsungGuidance = true }
-        compose.onAllNodesWithText("Limited").assertCountEquals(2)
+        compose.onAllNodesWithText("Limited").assertCountEquals(1)
         compose.onNodeWithText("Samsung unlocked alarm actions").assertIsDisplayed()
         assertEquals(AlarmReadinessState.LIMITED, calculateAlarmReadiness(values))
     }
@@ -256,7 +287,7 @@ class SettingsScreensTest {
                     Box(Modifier.width(360.dp).testTag("readiness-viewport")) {
                         AlarmReadinessScreen(
                             listOf(
-                                CapabilityItem("Notifications", false, "Permission required", "Allow notifications", { readinessRemediations++ }),
+                                CapabilityItem("Notifications", false, "Notification permission is required before medication alarms can be delivered.", "Allow notifications in system settings", { readinessRemediations++ }),
                                 CapabilityItem("Alarm notifications", true, "Ready", "", {}),
                                 CapabilityItem("Exact alarms", true, "Ready", "", {}),
                                 CapabilityItem("Full-screen alarm", true, "Ready", "", {}, false),
@@ -293,8 +324,9 @@ class SettingsScreensTest {
 
         compose.runOnIdle { showReadiness = true }
         compose.onNodeWithText("Notifications").assertIsDisplayed()
-        compose.onAllNodesWithText("Needs attention").assertCountEquals(2)
-        compose.onNodeWithText("Allow notifications").assertHasClickAction().performClick()
+        compose.onAllNodesWithText("Needs attention").assertCountEquals(1)
+        compose.onNodeWithText("Notification permission is required before medication alarms can be delivered.").assertIsDisplayed()
+        compose.onNodeWithText("Allow notifications in system settings").assertHasClickAction().performClick()
         val back = compose.onNodeWithContentDescription("Back")
         back.assertHasClickAction()
         val backBounds = back.getUnclippedBoundsInRoot()
