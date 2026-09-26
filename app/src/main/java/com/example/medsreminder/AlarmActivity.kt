@@ -6,7 +6,10 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,24 +19,34 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -45,8 +58,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.medsreminder.alarm.AlarmActionReceiver
 import com.example.medsreminder.alarm.AlarmPreferences
@@ -178,7 +193,8 @@ private fun AlarmLoadingScreen() {
         Text(
             "Loading alarm…",
             modifier = Modifier.padding(top = 16.dp),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
     }
@@ -194,46 +210,106 @@ private fun AlarmLoadedScreen(
     onMoreSnooze: () -> Unit,
 ) {
     val scheduledTime = AlarmActivity.TIME_FORMATTER.format(Instant.ofEpochMilli(occurrence.scheduledAtEpochMillis).atZone(ZoneId.systemDefault()))
+    val pillShape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
     Column(
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
     ) {
-        Spacer(Modifier.height(12.dp))
-        Text(occurrence.medicationName, style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() })
-        Text("Scheduled for $scheduledTime", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        occurrence.instructions?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = { onTaken(occurrence.occurrenceId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Mark as taken") }
+        // Compresses the unsupported medication-artwork area without turning identity into a top-bar title.
+        Spacer(Modifier.height(72.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                occurrence.medicationName,
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Scheduled for $scheduledTime",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        occurrence.instructions?.takeIf { it.isNotBlank() }?.let { instructions ->
+            Spacer(Modifier.height(20.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Text(instructions, modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), style = MaterialTheme.typography.bodyLarge)
+            }
+            Spacer(Modifier.height(32.dp))
+        } ?: Spacer(Modifier.height(36.dp))
+        Button(
+            onClick = { onTaken(occurrence.occurrenceId) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp),
+            shape = pillShape,
+        ) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+            Text("Mark as taken", style = MaterialTheme.typography.labelLarge.copy(fontSize = 17.sp))
+        }
+        Spacer(Modifier.height(16.dp))
         SnoozeSplitControl(
             minutes = configuredSnoozeMinutes,
             onDefaultSnooze = { onDefaultSnooze(occurrence.occurrenceId) },
             onMoreSnooze = onMoreSnooze,
         )
+        Spacer(Modifier.height(18.dp))
         OutlinedButton(
             onClick = { onSkip(occurrence.occurrenceId) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            shape = pillShape,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
         ) { Text("Skip this dose") }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
 private fun SnoozeSplitControl(minutes: Int, onDefaultSnooze: () -> Unit, onMoreSnooze: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        if (maxWidth >= 360.dp) {
+        val pillShape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
+        val secondaryColors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        )
+        // maxWidth is the post-horizontal-padding content allocation, not physical screen width.
+        if (maxWidth >= 312.dp) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDefaultSnooze, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text("Snooze $minutes min") }
-                OutlinedButton(
+                Button(
+                    onClick = onDefaultSnooze,
+                    modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+                    shape = pillShape,
+                    colors = secondaryColors,
+                ) {
+                    Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Snooze $minutes min")
+                }
+                Button(
                     onClick = onMoreSnooze,
-                    modifier = Modifier.sizeIn(minWidth = 52.dp, minHeight = 52.dp).semantics { contentDescription = "More snooze options" },
-                ) { Icon(Icons.Filled.MoreVert, contentDescription = null) }
+                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 56.dp).semantics { contentDescription = "More snooze options" },
+                    shape = pillShape,
+                    colors = secondaryColors,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) { Icon(Icons.Filled.MoreVert, contentDescription = null, modifier = Modifier.size(22.dp)) }
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDefaultSnooze, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Snooze $minutes min") }
-                OutlinedButton(
+                Button(onClick = onDefaultSnooze, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = pillShape, colors = secondaryColors) {
+                    Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Snooze $minutes min")
+                }
+                Button(
                     onClick = onMoreSnooze,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { contentDescription = "More snooze options" },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "More snooze options" },
+                    shape = pillShape,
+                    colors = secondaryColors,
                 ) { Text("More snooze options") }
             }
         }
@@ -245,22 +321,90 @@ private fun SnoozeSplitControl(minutes: Int, onDefaultSnooze: () -> Unit, onMore
 private fun AlternateSnoozeSheet(configuredSnoozeMinutes: Int, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.extraLarge,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Box(
+            modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars),
         ) {
-            Text("Snooze options", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-            AlarmPreferences.ALLOWED_SNOOZE_MINUTES.forEach { minutes ->
-                OutlinedButton(onClick = { onSelect(minutes) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                    Text("$minutes min", modifier = Modifier.weight(1f))
-                    if (minutes == configuredSnoozeMinutes) Text("Default", style = MaterialTheme.typography.labelLarge)
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+            ) {
+            Surface(
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50),
+            ) { Spacer(Modifier.size(width = 32.dp, height = 4.dp)) }
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 14.dp)) {
+                Text(
+                    "Snooze options",
+                    modifier = Modifier.align(Alignment.Center).semantics { heading() },
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center,
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterEnd).semantics { contentDescription = "Close snooze options" },
+                ) { Icon(Icons.Filled.Close, contentDescription = null) }
+            }
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Column {
+                    AlarmPreferences.ALLOWED_SNOOZE_MINUTES.forEachIndexed { index, minutes ->
+                        SnoozeOptionRow(
+                            minutes = minutes,
+                            isDefault = minutes == configuredSnoozeMinutes,
+                            onSelect = { onSelect(minutes) },
+                        )
+                        if (index < AlarmPreferences.ALLOWED_SNOOZE_MINUTES.lastIndex) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Text(
+                    "Choosing a time snoozes this alarm. This dose will return at the selected time.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+                Spacer(Modifier.height(24.dp))
+            }
         }
+    }
+}
+
+@Composable
+private fun SnoozeOptionRow(minutes: Int, isDefault: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).semantics(mergeDescendants = true) { }.clickable(onClick = onSelect).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("$minutes min", style = MaterialTheme.typography.bodyLarge)
+            if (isDefault) Text("Default snooze", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        RadioButton(
+            selected = isDefault,
+            onClick = onSelect,
+            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
+        )
     }
 }
 

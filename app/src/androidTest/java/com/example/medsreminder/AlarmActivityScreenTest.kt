@@ -54,7 +54,7 @@ class AlarmActivityScreenTest {
         compose.onNodeWithContentDescription("More snooze options").assertHasClickAction().performClick()
         listOf(5, 10, 15, 30).forEach { compose.onNodeWithText("$it min").assertIsDisplayed() }
         compose.onNodeWithText("20 min").assertDoesNotExist()
-        compose.onNodeWithText("Default").assertIsDisplayed()
+        compose.onNodeWithText("Default snooze").assertIsDisplayed()
         compose.onNodeWithText("Done").assertDoesNotExist()
     }
 
@@ -71,6 +71,36 @@ class AlarmActivityScreenTest {
         compose.onNodeWithContentDescription("More snooze options").performClick()
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
+        compose.onNodeWithText("Snooze options").assertDoesNotExist()
+        assertNull(selectedMinutes)
+    }
+
+    @Test
+    fun normalWidthSnoozePairUsesSeparateWideAndCompactActionTargets() {
+        render(10)
+
+        val defaultBounds = compose.onNodeWithText("Snooze 10 min").assertHasClickAction().getUnclippedBoundsInRoot()
+        val moreBounds = compose.onNodeWithContentDescription("More snooze options").assertHasClickAction().getUnclippedBoundsInRoot()
+        assertTrue(defaultBounds.right - defaultBounds.left >= (moreBounds.right - moreBounds.left) * 3f)
+        assertTrue(defaultBounds.right < moreBounds.left)
+        assertTrue(moreBounds.right - moreBounds.left >= 48.dp)
+        assertTrue(moreBounds.bottom - moreBounds.top >= 48.dp)
+        assertTrue(defaultBounds.top <= moreBounds.bottom && moreBounds.top <= defaultBounds.bottom)
+    }
+
+    @Test
+    fun sheetRowsAreImmediateTargetsAndExplicitCloseDismissesWithoutSnoozing() {
+        var selectedMinutes: Int? = null
+        render(10, onAlternateSnooze = { selectedMinutes = it })
+
+        compose.onNodeWithContentDescription("More snooze options").performClick()
+        listOf(5, 10, 15, 30).forEach { minutes ->
+            compose.onNodeWithText("$minutes min").assertIsDisplayed().assertHasClickAction().getUnclippedBoundsInRoot().also { bounds ->
+                assertTrue(bounds.bottom - bounds.top >= 48.dp)
+            }
+        }
+        compose.onNodeWithText("Default snooze").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Close snooze options").performClick()
         compose.onNodeWithText("Snooze options").assertDoesNotExist()
         assertNull(selectedMinutes)
     }

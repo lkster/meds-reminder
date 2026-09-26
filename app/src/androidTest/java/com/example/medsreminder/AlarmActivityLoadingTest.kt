@@ -206,6 +206,7 @@ class AlarmActivityLoadingTest {
         scenario = null
     }
 
+
     private fun waitForMedication(name: String) {
         compose.waitUntil(timeoutMillis = 5_000) {
             runCatching { compose.onNodeWithText(name).assertExists() }.isSuccess
