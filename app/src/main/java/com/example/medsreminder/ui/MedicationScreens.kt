@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,6 +60,7 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Search
@@ -518,12 +518,13 @@ fun MedicationEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp)
-                .testTag("medication-editor-scroll"),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 IconButton(
                     onClick = onCancel,
                     enabled = !mutationLocked,
@@ -534,29 +535,40 @@ fun MedicationEditorScreen(
                 Text(
                     screenTitle,
                     modifier = Modifier.padding(start = 8.dp).semantics { heading() },
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                 )
             }
 
-            EditorSectionCard {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .testTag("medication-editor-scroll"),
+            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Medication", style = MaterialTheme.typography.titleLarge)
+                EditorFieldLabel("Medication name")
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { onDraftChange(draft.copy(name = it)) },
-                    label = { Text("Medication name") },
                     singleLine = true,
                     isError = validation.blankName,
                     supportingText = if (validation.blankName) {
                         { Text("Enter a medication name", color = MaterialTheme.colorScheme.error) }
                     } else null,
                     enabled = !mutationLocked,
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                EditorFieldLabel("Instructions / notes (optional)")
                 OutlinedTextField(
                     value = draft.instructions,
                     onValueChange = { onDraftChange(draft.copy(instructions = it)) },
-                    label = { Text("Instructions / notes (optional)") },
                     enabled = !mutationLocked,
+                    minLines = 4,
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier.fillMaxWidth().testTag("medication-editor-instructions"),
                 )
                 Row(
@@ -579,58 +591,42 @@ fun MedicationEditorScreen(
                 }
             }
 
+            Spacer(Modifier.height(28.dp))
             Text("Reminders", style = MaterialTheme.typography.titleLarge)
             if (draft.id != null) {
                 Text(
                     "Removing a reminder and saving also deletes its history.",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Spacer(Modifier.height(12.dp))
             draft.times.forEachIndexed { index, time ->
                 val reminderNumber = index + 1
                 val reminderTime = formatMinute(time.minuteOfDay)
-                EditorSectionCard {
-                    Text("Reminder $reminderNumber", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        itemVerticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OutlinedButton(
-                            enabled = !mutationLocked,
-                            onClick = {
-                                TimePickerDialog(
-                                    context,
-                                    { _, hour, minute ->
-                                        val changed = draft.times.toMutableList()
-                                        changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
-                                        onDraftChange(draft.copy(times = changed))
-                                    },
-                                    time.minuteOfDay / 60,
-                                    time.minuteOfDay % 60,
-                                    true,
-                                ).show()
-                            },
-                            modifier = Modifier
-                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                                .semantics {
-                                    contentDescription = "Change reminder $reminderNumber time, currently $reminderTime"
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReminderTimeRow(
+                        reminderNumber = reminderNumber,
+                        reminderTime = reminderTime,
+                        canRemove = draft.times.size > 1,
+                        enabled = !mutationLocked,
+                        onChangeTime = {
+                            TimePickerDialog(
+                                context,
+                                { _, hour, minute ->
+                                    val changed = draft.times.toMutableList()
+                                    changed[index] = time.copy(minuteOfDay = hour * 60 + minute)
+                                    onDraftChange(draft.copy(times = changed))
                                 },
-                        ) { Text(reminderTime) }
-                        if (draft.times.size > 1) {
-                            TextButton(
-                                enabled = !mutationLocked,
-                                onClick = {
-                                    onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
-                                },
-                                modifier = Modifier
-                                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                                    .semantics {
-                                        contentDescription = "Remove reminder $reminderNumber at $reminderTime"
-                                    },
-                            ) { Text("Remove") }
-                        }
-                    }
+                                time.minuteOfDay / 60,
+                                time.minuteOfDay % 60,
+                                true,
+                            ).show()
+                        },
+                        onRemove = {
+                            onDraftChange(draft.copy(times = draft.times.filterIndexed { i, _ -> i != index }))
+                        },
+                    )
                     WeekdaySelector(
                         weekdayMask = time.weekdayMask,
                         reminderNumber = reminderNumber,
@@ -656,6 +652,7 @@ fun MedicationEditorScreen(
                         )
                     }
                 }
+                if (index != draft.times.lastIndex) Spacer(Modifier.height(20.dp))
             }
             if (validation.noReminders) {
                 Text(
@@ -664,64 +661,133 @@ fun MedicationEditorScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            OutlinedButton(
+            Button(
                 enabled = !mutationLocked,
                 onClick = {
                     val nextMinute = ((draft.times.maxOfOrNull { it.minuteOfDay } ?: 7 * 60) + 60) % (24 * 60)
                     onDraftChange(draft.copy(times = draft.times + EditorTime(null, nextMinute, WeekdayMask.ALL)))
                 },
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-            ) { Text("Add reminder time") }
-            Button(
-                onClick = { onSave(draft) },
-                enabled = validation.isValid && saveState.canStartSubmission,
-                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("medication-editor-save"),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
             ) {
-                Text(
-                    if (saveState is EditorSaveState.SavingRoom || saveState is EditorSaveState.CompletingAlarms) {
-                        "Saving…"
-                    } else {
-                        "Save"
-                    },
-                )
+                Icon(Icons.Outlined.Add, contentDescription = null)
+                Spacer(Modifier.sizeIn(minWidth = 8.dp))
+                Text("Add reminder time")
             }
-            when (saveState) {
-                is EditorSaveState.SavingRoom -> EditorProgress("Saving medication…")
-                is EditorSaveState.CompletingAlarms -> EditorProgress("Finishing alarm setup…")
-                is EditorSaveState.RoomFailure -> Text(
-                    "Could not save medication. Try again.",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-                is EditorSaveState.PostCommitFailure -> {
-                    Text(
-                        "Medication was saved, but alarms could not be updated.",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    )
-                    Button(
-                        onClick = onRetryPostCommit,
-                        modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
-                    ) { Text("Retry alarm update") }
-                }
-                EditorSaveState.Idle -> Unit
+            Spacer(Modifier.height(20.dp))
+        }
+        EditorBottomActionRegion(
+            validation = validation,
+            saveState = saveState,
+            onSave = { onSave(draft) },
+            onRetryPostCommit = onRetryPostCommit,
+        )
+        }
+    }
+}
+
+@Composable
+private fun EditorFieldLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun ReminderTimeRow(
+    reminderNumber: Int,
+    reminderTime: String,
+    canRemove: Boolean,
+    enabled: Boolean,
+    onChangeTime: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .clickable(enabled = enabled, onClick = onChangeTime)
+                    .padding(horizontal = 16.dp)
+                    .semantics {
+                        contentDescription = "Change reminder $reminderNumber time, currently $reminderTime"
+                    },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.AccessTime, contentDescription = null)
+                Text(reminderTime, style = MaterialTheme.typography.titleMedium)
+            }
+            if (canRemove) {
+                IconButton(
+                    enabled = enabled,
+                    onClick = onRemove,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "Remove reminder $reminderNumber at $reminderTime"
+                        },
+                ) { Icon(Icons.Outlined.Clear, contentDescription = null) }
             }
         }
     }
 }
 
 @Composable
-private fun EditorSectionCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+private fun EditorBottomActionRegion(
+    validation: EditorValidation,
+    saveState: EditorSaveState,
+    onSave: () -> Unit,
+    onRetryPostCommit: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
+        when (saveState) {
+            is EditorSaveState.SavingRoom -> EditorProgress("Saving medication…")
+            is EditorSaveState.CompletingAlarms -> EditorProgress("Finishing alarm setup…")
+            is EditorSaveState.RoomFailure -> Text(
+                "Could not save medication. Try again.",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            is EditorSaveState.PostCommitFailure -> {
+                Text(
+                    "Medication was saved, but alarms could not be updated.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                Button(
+                    onClick = onRetryPostCommit,
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
+                ) { Text("Retry alarm update") }
+            }
+            EditorSaveState.Idle -> Unit
+        }
+        Button(
+            onClick = onSave,
+            enabled = validation.isValid && saveState.canStartSubmission,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("medication-editor-save"),
+        ) {
+            Text(
+                if (saveState is EditorSaveState.SavingRoom || saveState is EditorSaveState.CompletingAlarms) {
+                    "Saving…"
+                } else {
+                    "Save"
+                },
+            )
+        }
     }
 }
 
@@ -746,32 +812,37 @@ private fun WeekdaySelector(
     enabled: Boolean,
     onChange: (Int) -> Unit,
 ) {
+    val chipColors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
     FilterChip(
         selected = weekdayMask == WeekdayMask.ALL,
         onClick = { onChange(WeekdayMask.ALL) },
         enabled = enabled,
+        colors = chipColors,
         modifier = Modifier.semantics {
             contentDescription = "Reminder $reminderNumber at $reminderTime, Every day"
         },
         label = { Text("Every day") },
     )
-    DAY_ROWS.forEach { days ->
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            days.forEach { day ->
-                val bit = 1 shl (day.value - 1)
-                FilterChip(
-                    selected = weekdayMask and bit != 0,
-                    onClick = { onChange(weekdayMask xor bit) },
-                    enabled = enabled,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Reminder $reminderNumber at $reminderTime, ${fullDayName(day)}"
-                    },
-                    label = { Text(dayLabel(day)) },
-                )
-            }
+    Spacer(Modifier.height(6.dp))
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        DayOfWeek.entries.forEach { day ->
+            val bit = 1 shl (day.value - 1)
+            FilterChip(
+                selected = weekdayMask and bit != 0,
+                onClick = { onChange(weekdayMask xor bit) },
+                enabled = enabled,
+                colors = chipColors,
+                modifier = Modifier.semantics {
+                    contentDescription = "Reminder $reminderNumber at $reminderTime, ${fullDayName(day)}"
+                },
+                label = { Text(dayLabel(day)) },
+            )
         }
     }
 }
@@ -802,8 +873,3 @@ private fun fullDayName(day: DayOfWeek): String = when (day) {
     DayOfWeek.SATURDAY -> "Saturday"
     DayOfWeek.SUNDAY -> "Sunday"
 }
-
-private val DAY_ROWS = listOf(
-    listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY),
-    listOf(DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY),
-)

@@ -1,9 +1,14 @@
-# Meds Reminder M35
+# Meds Reminder M36
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M36 converges the existing Medication Editor toward the approved M26 medication language: a compact fixed
+header, open labeled form, compact per-reminder time and weekday controls, independently scrolling body, and
+persistent Save/status region. EditorDraft, per-reminder weekday ownership, native time picker, Room commit,
+and post-commit alarm completion semantics are unchanged.
 
 M35 converges the Room-authoritative AlarmActivity toward the approved M26 Alarm visual direction: a centered
 medication-first composition, pill-shaped action hierarchy, filled wide/compact Snooze pair, and composed

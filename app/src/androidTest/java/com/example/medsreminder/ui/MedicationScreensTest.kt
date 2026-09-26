@@ -450,6 +450,13 @@ class MedicationScreensTest {
         assertTrue(backBounds.right - backBounds.left >= 48.dp)
         assertTrue(backBounds.bottom - backBounds.top >= 48.dp)
 
+        compose.onNodeWithTag("medication-editor-scroll")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy))
+        val save = compose.onNodeWithTag("medication-editor-save").assertIsEnabled()
+        val saveBounds = save.getUnclippedBoundsInRoot()
+        assertTrue(saveBounds.bottom <= viewport.bottom)
+        assertTrue(saveBounds.bottom - saveBounds.top >= 48.dp)
+
         val time = compose.onNodeWithContentDescription("Change reminder 1 time, currently 08:00", true)
         val remove = compose.onNodeWithContentDescription("Remove reminder 1 at 08:00", true)
         time.performScrollTo()
@@ -460,11 +467,6 @@ class MedicationScreensTest {
         assertTrue(timeBounds.bottom - timeBounds.top >= 48.dp)
         assertTrue(removeBounds.bottom - removeBounds.top >= 48.dp)
         compose.onNodeWithContentDescription("Reminder 1 at 08:00, Monday", true).performScrollTo().assertExists()
-        val save = compose.onNodeWithTag("medication-editor-save")
-        save.performScrollTo().assertIsEnabled()
-        val saveBounds = save.getUnclippedBoundsInRoot()
-        assertTrue(saveBounds.bottom <= viewport.bottom)
-        assertTrue(saveBounds.bottom - saveBounds.top >= 48.dp)
     }
 
     @Test
@@ -635,7 +637,7 @@ class MedicationScreensTest {
         compose.onNodeWithText(message)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertEquals(1, liveRegionNodeCount())
-        compose.onNodeWithText("Retry alarm update").performScrollTo().assertHasClickAction().performClick()
+        compose.onNodeWithText("Retry alarm update").assertHasClickAction().performClick()
         compose.onNodeWithText("Save").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Back").assertIsNotEnabled()
         compose.runOnIdle { assertEquals(1, retries) }
@@ -774,7 +776,8 @@ class MedicationScreensTest {
         compose.onNodeWithContentDescription("Change reminder 1 time, currently 08:00", true).assertHasClickAction()
         compose.onNodeWithContentDescription("Change reminder 2 time, currently 08:00", true).assertHasClickAction()
         compose.onNodeWithContentDescription("Remove reminder 1 at 08:00", true).assertHasClickAction()
-        compose.onNodeWithContentDescription("Remove reminder 2 at 08:00", true).assertHasClickAction().performClick()
+        compose.onNodeWithContentDescription("Remove reminder 2 at 08:00", true)
+            .performScrollTo().assertHasClickAction().performClick()
         compose.runOnIdle { assertEquals(11L, draft.times.single().id) }
     }
 
@@ -871,7 +874,18 @@ class MedicationScreensTest {
         val naturalTueBounds = weekday("Tuesday").getUnclippedBoundsInRoot()
         val naturalWedBounds = weekday("Wednesday").getUnclippedBoundsInRoot()
         val naturalThuBounds = weekday("Thursday").getUnclippedBoundsInRoot()
-        val naturalBounds = listOf(naturalMonBounds, naturalTueBounds, naturalWedBounds, naturalThuBounds)
+        val naturalFriBounds = weekday("Friday").getUnclippedBoundsInRoot()
+        val naturalSatBounds = weekday("Saturday").getUnclippedBoundsInRoot()
+        val naturalSunBounds = weekday("Sunday").getUnclippedBoundsInRoot()
+        val naturalBounds = listOf(
+            naturalMonBounds,
+            naturalTueBounds,
+            naturalWedBounds,
+            naturalThuBounds,
+            naturalFriBounds,
+            naturalSatBounds,
+            naturalSunBounds,
+        )
         assertTrue(naturalBounds.all { it.right - it.left > 0.dp })
         assertTrue(naturalBounds.all { abs((it.top - naturalMonBounds.top).value) <= 1f })
 
