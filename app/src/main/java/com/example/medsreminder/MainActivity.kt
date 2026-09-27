@@ -50,9 +50,11 @@ import com.example.medsreminder.ui.HistoryScreen
 import com.example.medsreminder.ui.MedicationEditorViewModel
 import com.example.medsreminder.ui.MedicationEditorScreen
 import com.example.medsreminder.ui.MedicationListScreen
+import com.example.medsreminder.ui.MedicationDeleteDialogState
 import com.example.medsreminder.ui.SettingsScreen
 import com.example.medsreminder.ui.AlarmReadinessScreen
 import com.example.medsreminder.ui.MedicationEditorViewModelTestHook
+import com.example.medsreminder.ui.locksDraft
 import com.example.medsreminder.ui.toHistoryItem
 import com.example.medsreminder.ui.theme.MedsReminderTheme
 import java.time.ZoneId
@@ -88,9 +90,17 @@ class MainActivity : ComponentActivity() {
     )
     private var alarmSoundLabel by mutableStateOf("System default")
     private var normalAppBackHandler: (() -> Boolean)? = null
+    private var deleteDialog by mutableStateOf<MedicationDeleteDialogState?>(null)
+    private var editorDiscardRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        editorDiscardRequested = savedInstanceState?.getBoolean("editor_discard_requested") == true
+        savedInstanceState?.getLong("delete_dialog_id", -1L)?.takeIf { it >= 0L }?.let { id ->
+            deleteDialog = MedicationDeleteDialogState(
+                id, savedInstanceState.getString("delete_dialog_name").orEmpty(),
+            )
+        }
         editorOwner = MedicationEditorViewModelTestHook.factory?.let { testFactory ->
             ViewModelProvider(this, object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -106,8 +116,10 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (editorOwner.draft != null) {
-                    // cancelIdleEditor intentionally consumes Back while an operation is active.
-                    editorOwner.cancelIdleEditor()
+                    if (!editorOwner.saveState.locksDraft) {
+                        if (editorOwner.isDirty) editorDiscardRequested = true
+                        else editorOwner.cancelIdleEditor()
+                    }
                 } else if (normalAppBackHandler?.invoke() == true) {
                     return
                 } else {
@@ -139,6 +151,15 @@ class MainActivity : ComponentActivity() {
                 Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) { MainContent() }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("editor_discard_requested", editorDiscardRequested)
+        deleteDialog?.takeIf { !it.submitting }?.let {
+            outState.putLong("delete_dialog_id", it.medicationId)
+            outState.putString("delete_dialog_name", it.medicationName)
+        }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
@@ -188,7 +209,10 @@ class MainActivity : ComponentActivity() {
                 draft = currentEditor,
                 onDraftChange = editorOwner::updateDraft,
                 onSave = { editorOwner.submit() },
-                onCancel = editorOwner::cancelIdleEditor,
+                onCancel = { editorDiscardRequested = false; editorOwner.cancelIdleEditor() },
+                isDirty = editorOwner.isDirty,
+                discardDialogVisible = editorDiscardRequested,
+                onDiscardDialogVisibilityChange = { editorDiscardRequested = it },
                 saveState = editorOwner.saveState,
                 onRetryPostCommit = editorOwner::retryPostCommitCompletion,
                 handleSystemBack = false,
@@ -266,6 +290,9 @@ class MainActivity : ComponentActivity() {
                 onEdit = editorOwner::openExisting,
                 onToggle = ::saveMedicationListToggle,
                 onDelete = ::deleteMedication,
+                deleteDialogState = deleteDialog,
+                onDeleteRequested = { id, name -> deleteDialog = MedicationDeleteDialogState(id, name) },
+                onDismissDelete = { if (deleteDialog?.submitting != true) deleteDialog = null },
             )
             NormalAppPane.SETTINGS -> SettingsScreen(
                 capabilityItems = capabilityItems,
@@ -362,10 +389,21 @@ class MainActivity : ComponentActivity() {
 
     /** An accepted deletion is a finite Room-then-projection operation owned by this Activity. */
     private fun deleteMedication(medicationId: Long) {
+        val current = deleteDialog ?: return
+        if (current.medicationId != medicationId || current.submitting) return
+        deleteDialog = current.copy(submitting = true, error = null)
         lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
             val outcome = withContext(NonCancellable) {
                 withContext(Dispatchers.IO) {
                     completeMedicationDelete(medicationId)
+                }
+            }
+            if (isActive && !isFinishing && !isDestroyed && deleteDialog?.medicationId == medicationId) {
+                deleteDialog = when (outcome) {
+                    is MedicationDeleteOutcome.PersistenceFailure -> current.copy(
+                        error = "Could not delete medication. Please try again.",
+                    )
+                    else -> null
                 }
             }
             deliverMedicationDeleteFeedback(outcome, isActive)
@@ -410,11 +448,7 @@ class MainActivity : ComponentActivity() {
         MedicationDeleteTestHook.onFeedbackEligibility(applicationContext, canDeliver)
         if (!canDeliver) return
         when (outcome) {
-            is MedicationDeleteOutcome.PersistenceFailure -> Toast.makeText(
-                this,
-                "Could not delete medication: ${outcome.error.message}",
-                Toast.LENGTH_LONG,
-            ).show()
+            is MedicationDeleteOutcome.PersistenceFailure -> Unit
             is MedicationDeleteOutcome.AlarmCompletionFailure -> Toast.makeText(
                 this,
                 "Medication deleted, but alarms could not be fully cleaned up. Alarm setup will be retried when Meds Reminder resumes.",
@@ -433,6 +467,8 @@ class MainActivity : ComponentActivity() {
     /** Test-only target-side visibility check for the narrow M9 filesystem control. */
     internal fun isMedicationDeleteTestControlActive(): Boolean =
         MedicationDeleteTestHook.isActive(applicationContext)
+
+    internal fun isEditorDiscardDialogRequestedForTest(): Boolean = editorDiscardRequested
 
     private fun refreshCapabilities() {
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -777,6 +813,7 @@ internal object MedicationDeleteTestHook {
     private const val RELEASE_BEFORE_ROOM = "release-before-room"
     private const val RELEASE_AFTER_ROOM = "release-after-room"
     private const val FAIL_AFTER_ROOM = "fail-after-room"
+    private const val FAIL_BEFORE_ROOM = "fail-before-room"
     private const val BEFORE_ROOM_REACHED = "before-room-reached"
     private const val AFTER_ROOM_REACHED = "after-room-reached"
     private const val PHASE_A_CALLS = "phase-a-calls"
@@ -792,6 +829,7 @@ internal object MedicationDeleteTestHook {
         holdBeforeRoom: Boolean = false,
         holdAfterRoom: Boolean = false,
         failAfterRoom: Boolean = false,
+        failBeforeRoom: Boolean = false,
     ) {
         reset(context)
         directory(context).mkdirs()
@@ -799,10 +837,12 @@ internal object MedicationDeleteTestHook {
         if (holdBeforeRoom) touch(context, HOLD_BEFORE_ROOM)
         if (holdAfterRoom) touch(context, HOLD_AFTER_ROOM)
         if (failAfterRoom) touch(context, FAIL_AFTER_ROOM)
+        if (failBeforeRoom) touch(context, FAIL_BEFORE_ROOM)
     }
 
     fun reset(context: Context) { directory(context).deleteRecursively() }
     fun releaseBeforeRoom(context: Context) = touch(context, RELEASE_BEFORE_ROOM)
+    fun clearBeforeRoomFailure(context: Context) { file(context, FAIL_BEFORE_ROOM).delete() }
     fun releaseAfterRoom(context: Context) = touch(context, RELEASE_AFTER_ROOM)
     fun beforeRoomReached(context: Context): Boolean = file(context, BEFORE_ROOM_REACHED).exists()
     fun afterRoomReached(context: Context): Boolean = file(context, AFTER_ROOM_REACHED).exists()
@@ -818,6 +858,9 @@ internal object MedicationDeleteTestHook {
     suspend fun beforeRoom(context: Context) {
         mark(context, BEFORE_ROOM_REACHED)
         awaitRelease(context, HOLD_BEFORE_ROOM, RELEASE_BEFORE_ROOM)
+        if (file(context, FAIL_BEFORE_ROOM).exists()) {
+            throw IllegalStateException("Test Room deletion failure")
+        }
     }
 
     suspend fun afterRoomBeforePhaseB(context: Context) {

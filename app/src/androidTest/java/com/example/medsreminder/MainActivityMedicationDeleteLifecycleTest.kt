@@ -1,5 +1,7 @@
 package com.example.medsreminder
 
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -58,6 +60,55 @@ class MainActivityMedicationDeleteLifecycleTest {
         compose.onNodeWithText("Delete Lifecycle medicine?").assertExists()
         compose.onNodeWithText("Cancel").performTouchInput { click() }
         assertTrue(medicationExists())
+    }
+
+    @Test fun preCommitFailureStaysInlineAllowsRetryAndProducesRepresentativeRender() {
+        MedicationDeleteTestHook.configure(targetContext, failBeforeRoom = true)
+        seedMedication(); recreateForFixture()
+        confirmDelete()
+        eventually {
+            compose.onAllNodesWithText("Could not delete medication. Please try again.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(medicationExists())
+        compose.onNodeWithText("Delete Lifecycle medicine?").assertExists()
+        compose.onNodeWithText("Retry delete").assertIsEnabled()
+        compose.onNodeWithText("Cancel").assertIsEnabled()
+        compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+            "screencap -p /sdcard/Download/m37-delete-persistence-failure.png",
+        ).close()
+        MedicationDeleteTestHook.clearBeforeRoomFailure(targetContext)
+        compose.onNodeWithText("Retry delete").performTouchInput { click() }
+        eventually { !medicationExists() }
+        compose.onNodeWithText("Delete Lifecycle medicine?").assertDoesNotExist()
+        assertEquals(1, MedicationDeleteTestHook.phaseACalls(targetContext))
+    }
+
+    @Test fun submittingDialogStaysVisibleAndPreventsDuplicateDelete() {
+        MedicationDeleteTestHook.configure(targetContext, holdBeforeRoom = true)
+        seedMedication(); recreateForFixture()
+        try {
+            confirmDelete()
+            eventually { MedicationDeleteTestHook.beforeRoomReached(targetContext) }
+            compose.onNodeWithText("Delete Lifecycle medicine?").assertExists()
+            compose.onNodeWithText("Delete").assertIsNotEnabled()
+            compose.onNodeWithText("Cancel").assertIsNotEnabled()
+            assertEquals(0, MedicationDeleteTestHook.phaseACalls(targetContext))
+            MedicationDeleteTestHook.releaseBeforeRoom(targetContext)
+            eventually { !medicationExists() }
+            assertEquals(1, MedicationDeleteTestHook.phaseACalls(targetContext))
+            compose.onNodeWithText("Delete Lifecycle medicine?").assertDoesNotExist()
+        } finally { MedicationDeleteTestHook.releaseBeforeRoom(targetContext) }
+    }
+
+    @Test fun postCommitFailureClosesDeleteDialogWithoutRetry() {
+        MedicationDeleteTestHook.configure(targetContext, failAfterRoom = true)
+        seedMedication(); recreateForFixture()
+        confirmDelete()
+        eventually { !medicationExists() && MedicationDeleteTestHook.feedbackSeen(targetContext) }
+        compose.onNodeWithText("Delete Lifecycle medicine?").assertDoesNotExist()
+        compose.onNodeWithText("Retry delete").assertDoesNotExist()
     }
 
     @Test fun acceptedDeletionSurvivesRecreationBeforeRoom() {

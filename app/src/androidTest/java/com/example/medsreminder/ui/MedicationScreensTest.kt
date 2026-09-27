@@ -1,5 +1,6 @@
 package com.example.medsreminder.ui
 
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -54,6 +55,7 @@ import com.example.medsreminder.data.MedicationScheduleEditResult
 import com.example.medsreminder.data.MedicationWithTimes
 import com.example.medsreminder.data.ReminderTimeEntity
 import com.example.medsreminder.data.WeekdayMask
+import com.example.medsreminder.ui.theme.MedsReminderTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -65,6 +67,50 @@ import kotlin.math.abs
 class MedicationScreensTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun dirtyEditorDecisionPreservesDraftAndRendersAtLargeText() {
+        val original = EditorDraft.from(persistedMedication(mask = WeekdayMask.ALL, id = 37L, name = "Evening medicine"))
+        var draft by mutableStateOf(original)
+        var closed by mutableStateOf(false)
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2.0f)) {
+                MedsReminderTheme {
+                    Box(Modifier.width(360.dp).testTag("m37-editor-viewport")) {
+                        if (!closed) MedicationEditorScreen(
+                            draft = draft,
+                            onDraftChange = { draft = it },
+                            onSave = {},
+                            onCancel = { closed = true },
+                            isDirty = draft != original,
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Discard changes?").assertDoesNotExist()
+        compose.runOnIdle { closed = false; draft = draft.copy(instructions = "Take after dinner") }
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Discard changes?").assertExists()
+        compose.onNodeWithText("Keep editing").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals("Take after dinner", draft.instructions); closed = false }
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Discard changes?").assertExists()
+        val viewport = compose.onNodeWithTag("m37-editor-viewport").getUnclippedBoundsInRoot()
+        val keep = compose.onNodeWithText("Keep editing").getUnclippedBoundsInRoot()
+        val discard = compose.onNodeWithText("Discard changes").getUnclippedBoundsInRoot()
+        assertTrue(discard.bottom <= keep.top)
+        assertTrue(discard.left >= viewport.left && keep.right <= viewport.right)
+        compose.waitForIdle()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.executeShellCommand(
+            "screencap -p /sdcard/Download/m37-editor-discard-large-text.png",
+        ).close()
+        compose.onNodeWithText("Discard changes").performClick()
+        compose.runOnIdle { assertTrue(closed) }
+    }
 
     @Test
     fun medicationListHeaderKeepsHistoryReachableWhenLargeTextForcesWrap() {

@@ -1,9 +1,14 @@
-# Meds Reminder M36
+# Meds Reminder M37
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M37 adds medication deletion and unsaved editor changes as normal-app decision dialogs. A Room
+delete failure stays in the dialog with retry and cancel; a committed delete closes it even if
+alarm cleanup needs a later retry. Clean editor drafts close immediately, while dirty idle drafts
+require discard confirmation. The editor's save and alarm completion boundaries are unchanged.
 
 M36 converges the existing Medication Editor toward the approved M26 medication language: a compact fixed
 header, open labeled form, compact per-reminder time and weekday controls, independently scrolling body, and

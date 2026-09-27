@@ -43,13 +43,18 @@ class MedicationEditorViewModel private constructor(
     // live-process state because Room is authoritative once Phase A has committed.
     var draft by mutableStateOf(EditorDraftSnapshot.decode(savedStateHandle))
         private set
+    private var baseline by mutableStateOf(EditorDraftSnapshot.decode(savedStateHandle, EditorDraftSnapshot.BASELINE_KEY))
+    val isDirty: Boolean
+        get() = draft != null && draft != baseline
     var saveState by mutableStateOf<EditorSaveState>(EditorSaveState.Idle)
         private set
 
     fun openNew() {
         if (draft == null) {
             draft = EditorDraft.new()
+            baseline = draft
             saveDraft(draft!!)
+            saveBaseline(draft!!)
             saveState = EditorSaveState.Idle
         }
     }
@@ -57,7 +62,9 @@ class MedicationEditorViewModel private constructor(
     fun openExisting(item: MedicationWithTimes) {
         if (draft == null) {
             draft = EditorDraft.from(item)
+            baseline = draft
             saveDraft(draft!!)
+            saveBaseline(draft!!)
             saveState = EditorSaveState.Idle
         }
     }
@@ -74,6 +81,8 @@ class MedicationEditorViewModel private constructor(
         if (!saveState.locksDraft) {
             draft = null
             savedStateHandle.remove<Bundle>(EditorDraftSnapshot.KEY)
+            baseline = null
+            savedStateHandle.remove<Bundle>(EditorDraftSnapshot.BASELINE_KEY)
             saveState = EditorSaveState.Idle
         }
     }
@@ -116,6 +125,8 @@ class MedicationEditorViewModel private constructor(
                 saveOperations.completeAlarms(result)
             }
             draft = null
+            baseline = null
+            savedStateHandle.remove<Bundle>(EditorDraftSnapshot.BASELINE_KEY)
             saveState = EditorSaveState.Idle
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -136,6 +147,10 @@ class MedicationEditorViewModel private constructor(
 
     private fun saveDraft(draft: EditorDraft) {
         savedStateHandle[EditorDraftSnapshot.KEY] = EditorDraftSnapshot.encode(draft)
+    }
+
+    private fun saveBaseline(draft: EditorDraft) {
+        savedStateHandle[EditorDraftSnapshot.BASELINE_KEY] = EditorDraftSnapshot.encode(draft)
     }
 
     companion object {
@@ -186,6 +201,7 @@ internal object MedicationEditorViewModelTestHook {
 /** One deliberately narrow, Bundle-compatible editor snapshot. */
 private object EditorDraftSnapshot {
     const val KEY = "medication_editor_draft_v1"
+    const val BASELINE_KEY = "medication_editor_baseline_v1"
     private const val VERSION = 1
     private const val VERSION_KEY = "version"
     private const val ID_PRESENT_KEY = "id_present"
@@ -213,9 +229,9 @@ private object EditorDraftSnapshot {
         putIntArray(WEEKDAY_MASKS_KEY, draft.times.map { it.weekdayMask }.toIntArray())
     }
 
-    fun decode(handle: SavedStateHandle): EditorDraft? {
+    fun decode(handle: SavedStateHandle, key: String = KEY): EditorDraft? {
         return try {
-        val snapshot = handle.get<Any?>(KEY) as? Bundle ?: return null
+        val snapshot = handle.get<Any?>(key) as? Bundle ?: return null
         if (snapshot.get(VERSION_KEY) !is Int || snapshot.getInt(VERSION_KEY) != VERSION ||
             snapshot.get(ID_PRESENT_KEY) !is Boolean || snapshot.get(ID_KEY) !is Long ||
             snapshot.get(NAME_KEY) !is String || snapshot.get(INSTRUCTIONS_KEY) !is String ||

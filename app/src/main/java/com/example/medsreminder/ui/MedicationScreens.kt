@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,6 +58,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AccessTime
@@ -135,6 +137,13 @@ data class CapabilityItem(
     val requiredForReliableDelivery: Boolean = true,
 )
 
+data class MedicationDeleteDialogState(
+    val medicationId: Long,
+    val medicationName: String,
+    val submitting: Boolean = false,
+    val error: String? = null,
+)
+
 @Composable
 fun MedicationListScreen(
     medications: List<MedicationWithTimes>?,
@@ -144,12 +153,16 @@ fun MedicationListScreen(
     onEdit: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
+    deleteDialogState: MedicationDeleteDialogState? = null,
+    onDeleteRequested: ((Long, String) -> Unit)? = null,
+    onDismissDelete: (() -> Unit)? = null,
 ) {
     // The dialog is UI state, but its target must remain a stable identity rather than a
     // retained list snapshot. Keeping the display name makes restoration independent of the
     // first post-recreation Room Flow emission.
     var deleteCandidateId by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleteCandidateName by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSubmitting by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var actionMenuMedicationId by rememberSaveable { mutableStateOf<Long?>(null) }
     val trimmedSearchQuery = searchQuery.trim()
@@ -164,6 +177,7 @@ fun MedicationListScreen(
     fun clearDeleteCandidate() {
         deleteCandidateId = null
         deleteCandidateName = null
+        localSubmitting = false
     }
     Box(
         modifier = Modifier
@@ -205,8 +219,12 @@ fun MedicationListScreen(
                             },
                             onDeleteRequested = {
                                 actionMenuMedicationId = null
-                                deleteCandidateId = item.medication.id
-                                deleteCandidateName = item.medication.name
+                                if (onDeleteRequested != null) {
+                                    onDeleteRequested(item.medication.id, item.medication.name)
+                                } else {
+                                    deleteCandidateId = item.medication.id
+                                    deleteCandidateName = item.medication.name
+                                }
                             },
                         )
                     }
@@ -227,19 +245,95 @@ fun MedicationListScreen(
         }
     }
 
-    deleteCandidateId?.let { medicationId ->
-        AlertDialog(
-            onDismissRequest = ::clearDeleteCandidate,
-            title = { Text("Delete ${deleteCandidateName ?: "this medication"}?") },
-            text = { Text("Its reminder times, pending alarms, and history will be removed.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    clearDeleteCandidate()
-                    onDelete(medicationId)
-                }) { Text("Delete") }
+    val dialog = deleteDialogState ?: deleteCandidateId?.let {
+        MedicationDeleteDialogState(it, deleteCandidateName ?: "this medication", localSubmitting)
+    }
+    dialog?.let { state ->
+        MedicationDecisionDialog(
+            title = "Delete ${state.medicationName}?",
+            body = "Deleting this medication removes its reminder times, pending alarms, and history.",
+            error = state.error,
+            confirmLabel = if (state.error == null) "Delete" else "Retry delete",
+            dismissLabel = "Cancel",
+            submitting = state.submitting,
+            onDismiss = onDismissDelete ?: ::clearDeleteCandidate,
+            onConfirm = {
+                if (!state.submitting) {
+                    if (onDeleteRequested == null) localSubmitting = true
+                    onDelete(state.medicationId)
+                }
             },
-            dismissButton = { TextButton(onClick = ::clearDeleteCandidate) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun MedicationDecisionDialog(
+    title: String,
+    body: String,
+    error: String? = null,
+    confirmLabel: String,
+    dismissLabel: String,
+    submitting: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val largeText = LocalDensity.current.fontScale >= 1.5f
+    Dialog(onDismissRequest = { if (!submitting) onDismiss() }) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp,
+        ) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.headlineSmall)
+                Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (error != null) Text(
+                    error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                if (submitting) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                if (largeText) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onConfirm, enabled = !submitting,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) { Text(confirmLabel) }
+                        TextButton(onClick = onDismiss, enabled = !submitting,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(dismissLabel) }
+                    }
+                } else {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onDismiss, enabled = !submitting,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text(dismissLabel) }
+                        Button(
+                            onClick = onConfirm, enabled = !submitting,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) { Text(confirmLabel) }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -501,13 +595,26 @@ fun MedicationEditorScreen(
     saveState: EditorSaveState = EditorSaveState.Idle,
     onRetryPostCommit: () -> Unit = {},
     handleSystemBack: Boolean = true,
+    isDirty: Boolean = false,
+    discardDialogVisible: Boolean? = null,
+    onDiscardDialogVisibilityChange: ((Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val validation = draft.editorValidation
     val mutationLocked = saveState.locksDraft
     val screenTitle = if (draft.id == null) "Add medication" else "Edit medication"
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
+    fun setDiscardVisible(visible: Boolean) {
+        if (onDiscardDialogVisibilityChange != null) onDiscardDialogVisibilityChange(visible)
+        else showDiscardDialog = visible
+    }
+    fun requestExit() {
+        if (!mutationLocked) {
+            if (isDirty) setDiscardVisible(true) else onCancel()
+        }
+    }
     // Consume Back while work is owned by the retained ViewModel so it cannot be abandoned.
-    if (handleSystemBack) BackHandler { if (!mutationLocked) onCancel() }
+    if (handleSystemBack) BackHandler(enabled = !mutationLocked) { requestExit() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -526,7 +633,7 @@ fun MedicationEditorScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
-                    onClick = onCancel,
+                    onClick = ::requestExit,
                     enabled = !mutationLocked,
                     modifier = Modifier
                         .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -687,6 +794,16 @@ fun MedicationEditorScreen(
             onRetryPostCommit = onRetryPostCommit,
         )
         }
+    }
+    if ((discardDialogVisible ?: showDiscardDialog) && !mutationLocked) {
+        MedicationDecisionDialog(
+            title = "Discard changes?",
+            body = "Your unsaved changes to this medication will be lost.",
+            confirmLabel = "Discard changes",
+            dismissLabel = "Keep editing",
+            onDismiss = { setDiscardVisible(false) },
+            onConfirm = { setDiscardVisible(false); onCancel() },
+        )
     }
 }
 

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -63,6 +64,29 @@ class MedicationEditorLifecycleTest {
     }
 
     @Test
+    fun dirtyBaselineRestoresAlongsideDraftAfterProcessStyleStateRecreation() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val handle = SavedStateHandle()
+        val first = MedicationEditorViewModel.forTest(application, handle, control.operations)
+        first.openNew()
+        assertFalse(first.isDirty)
+        first.updateDraft(validDraft())
+        assertTrue(first.isDirty)
+
+        val restoredHandle = SavedStateHandle(mapOf(
+            "medication_editor_draft_v1" to handle.get<Bundle>("medication_editor_draft_v1"),
+            "medication_editor_baseline_v1" to handle.get<Bundle>("medication_editor_baseline_v1"),
+        ))
+        val restored = MedicationEditorViewModel.forTest(application, restoredHandle, control.operations)
+        assertEquals(first.draft, restored.draft)
+        assertTrue(restored.isDirty)
+        restored.cancelIdleEditor()
+        assertFalse(restored.isDirty)
+        assertEquals(null, restored.draft)
+        assertEquals(null, restoredHandle.get<Bundle>("medication_editor_baseline_v1"))
+    }
+
+    @Test
     fun idleNewAndExistingDraftsSurviveActivityRecreationWithoutRoomMutation() {
         val newDraft = validDraft().copy(
             name = "Vitamin D",
@@ -71,13 +95,14 @@ class MedicationEditorLifecycleTest {
             times = listOf(EditorTime(null, 9 * 60 + 15, WeekdayMask.ALL xor 1)),
         )
         val initialOwner = owner()
-        onOwner { openNew(); updateDraft(newDraft) }
+        onOwner { openNew(); assertFalse(isDirty); updateDraft(newDraft); assertTrue(isDirty) }
 
         scenario.recreate()
 
         val recreatedOwner = owner()
         assertSame(initialOwner, recreatedOwner)
         assertEquals(newDraft, recreatedOwner.draft)
+        assertTrue(recreatedOwner.isDirty)
         assertEquals(0, medicationCount())
 
         val medicationId = runBlocking {
@@ -100,6 +125,7 @@ class MedicationEditorLifecycleTest {
         }
         val persistedExisting = existing(medicationId)
         onOwner { cancelIdleEditor(); openExisting(persistedExisting) }
+        assertFalse(owner().isDirty)
 
         scenario.recreate()
 
@@ -109,14 +135,15 @@ class MedicationEditorLifecycleTest {
         assertEquals(21 * 60, existingDraft.times.single().minuteOfDay)
         assertEquals(0b0010101, existingDraft.times.single().weekdayMask)
         assertEquals(1, medicationCount())
+        assertFalse(owner().isDirty)
     }
 
     @Test
     fun recreationDuringPhaseAHoldsOneRetainedSubmissionAndCreatesOneMedication() {
         control.holdRoom = true
+        val originalOwner = owner()
         onOwner { openNew(); updateDraft(validDraft()); submit() }
         assertTrue(control.roomStarted.await(3, TimeUnit.SECONDS))
-        val originalOwner = owner()
 
         var recreatedOwner: MedicationEditorViewModel? = null
         var recreatedState: EditorSaveState? = null
@@ -150,6 +177,7 @@ class MedicationEditorLifecycleTest {
         assertEquals(1, control.roomCalls.get())
 
         eventually { owner().draft == null }
+        assertFalse(owner().isDirty)
         assertEquals(1, control.roomCalls.get())
         assertEquals(1, medicationCount())
     }
@@ -157,10 +185,10 @@ class MedicationEditorLifecycleTest {
     @Test
     fun recreationAfterRoomCommitRetainsResultAndDoesNotCreateAgain() {
         control.holdCompletion = true
+        val originalOwner = owner()
         onOwner { openNew(); updateDraft(validDraft()); submit() }
         assertTrue(control.completionStarted.await(3, TimeUnit.SECONDS))
-        val committed = owner().saveState as EditorSaveState.CompletingAlarms
-        val originalOwner = owner()
+        val committed = originalOwner.saveState as EditorSaveState.CompletingAlarms
         assertEquals(1, medicationCount())
 
         var recreatedOwner: MedicationEditorViewModel? = null
@@ -197,6 +225,7 @@ class MedicationEditorLifecycleTest {
         assertEquals(1, control.roomCalls.get())
 
         eventually { owner().draft == null }
+        assertFalse(owner().isDirty)
         assertEquals(1, medicationCount())
     }
 
@@ -208,6 +237,7 @@ class MedicationEditorLifecycleTest {
 
         eventually { owner().saveState is EditorSaveState.RoomFailure }
         assertEquals(draft, owner().draft)
+        assertTrue(owner().isDirty)
         assertEquals(0, medicationCount())
 
         onOwner { submit() }
@@ -253,26 +283,33 @@ class MedicationEditorLifecycleTest {
     }
 
     @Test
-    fun idleBackAndCancelCloseButActiveSaveCannotBeAbandoned() {
+    fun cleanBackClosesDirtyBackWaitsForConfirmationAndActiveSaveCannotBeAbandoned() {
+        onOwner { openNew() }
+        settleUi()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        eventually { owner().draft == null }
+
         onOwner { openNew(); updateDraft(validDraft()) }
         settleUi()
-        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        eventually { owner().draft == null }
-
-        onOwner { openNew(); updateDraft(validDraft()); cancelIdleEditor() }
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        assertNotNull(owner().draft)
+        assertTrue(owner().isDirty)
+        scenario.onActivity { assertTrue(it.isEditorDiscardDialogRequestedForTest()) }
+        onOwner { cancelIdleEditor() }
         assertFalse(owner().draft != null)
+        assertFalse(owner().isDirty)
+        settleUi()
 
         control.holdRoom = true
+        val savingOwner = owner()
         onOwner { openNew(); updateDraft(validDraft()); submit() }
         assertTrue(control.roomStarted.await(3, TimeUnit.SECONDS))
-        settleUi()
-        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        onOwner { cancelIdleEditor() }
-        assertNotNull(owner().draft)
-        assertTrue(owner().saveState is EditorSaveState.SavingRoom)
+        savingOwner.cancelIdleEditor()
+        assertNotNull(savingOwner.draft)
+        assertTrue(savingOwner.saveState is EditorSaveState.SavingRoom)
 
         control.releaseRoom.countDown()
-        eventually { owner().draft == null }
+        eventually { savingOwner.draft == null }
     }
 
     @Test
@@ -295,6 +332,7 @@ class MedicationEditorLifecycleTest {
             )
         }
         control.holdRoom = true
+        val busyOwner = owner()
         onOwner { openNew(); updateDraft(validDraft()); submit() }
         assertTrue(control.roomStarted.await(3, TimeUnit.SECONDS))
 
@@ -307,11 +345,11 @@ class MedicationEditorLifecycleTest {
                 zoneId = ZoneId.systemDefault(),
             )
         }
-        assertTrue(owner().saveState is EditorSaveState.SavingRoom)
+        assertTrue(busyOwner.saveState is EditorSaveState.SavingRoom)
         assertFalse(runBlocking { database.medicationDao().get(medicationId)!!.enabled })
 
         control.releaseRoom.countDown()
-        eventually { owner().draft == null }
+        eventually { busyOwner.draft == null }
     }
 
     private fun onOwner(action: MedicationEditorViewModel.() -> Unit) {
