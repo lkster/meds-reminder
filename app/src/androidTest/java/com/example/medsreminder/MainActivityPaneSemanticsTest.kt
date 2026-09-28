@@ -62,12 +62,19 @@ class MainActivityPaneSemanticsTest {
         compose.onNodeWithContentDescription("Back").performClick()
 
         assertPaneTitle("Medications")
-        compose.onNodeWithContentDescription("Edit medication 1, $medicationName")
+        compose.onNodeWithContentDescription("Medication details 1, $medicationName")
             .performScrollTo()
             .performClick()
+        assertPaneTitle("Medication details")
+        assertTitleHeading(medicationName)
+        assertPaneTitleAbsent("Medications")
+        compose.onNodeWithText("Edit medication").performScrollTo().performClick()
         assertPaneTitle("Edit medication")
         assertTitleHeading("Edit medication")
         assertPaneTitleAbsent("Medications")
+        compose.onNodeWithContentDescription("Back").performClick()
+
+        assertPaneTitle("Medication details")
         compose.onNodeWithContentDescription("Back").performClick()
 
         assertPaneTitle("Medications")
@@ -90,6 +97,35 @@ class MainActivityPaneSemanticsTest {
         compose.onNodeWithContentDescription("Back").performClick()
         assertPaneTitle("Medications")
         assertTitleHeading("Medications")
+    }
+
+    @Test
+    fun medicationDetailsReferenceRender() {
+        runBlocking {
+            database.clearAllTables()
+            val id = database.medicationDao().insertMedication(
+                MedicationEntity(
+                    name = "Lisinopril",
+                    instructions = "Take with water every morning.",
+                    enabled = true,
+                ),
+            )
+            database.medicationDao().insertTime(
+                ReminderTimeEntity(medicationId = id, minuteOfDay = 8 * 60),
+            )
+            database.medicationDao().insertTime(
+                ReminderTimeEntity(medicationId = id, minuteOfDay = 20 * 60, weekdayMask = 0b0010101),
+            )
+        }
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText("Lisinopril").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Medication details 1, Lisinopril")
+            .performScrollTo().performClick()
+        compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+            "screencap -p /sdcard/Download/m38-medication-details.png",
+        ).close()
     }
 
     private fun waitForMedication() {

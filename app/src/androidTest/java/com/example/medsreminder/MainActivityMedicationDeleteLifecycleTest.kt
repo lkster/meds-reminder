@@ -85,6 +85,28 @@ class MainActivityMedicationDeleteLifecycleTest {
         assertEquals(1, MedicationDeleteTestHook.phaseACalls(targetContext))
     }
 
+    @Test fun detailsOriginDeleteUsesTheExistingFailureAndRetryPipeline() {
+        MedicationDeleteTestHook.configure(targetContext, failBeforeRoom = true)
+        seedMedication(); recreateForFixture()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Medication details 1, Lifecycle medicine")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Medication details 1, Lifecycle medicine")
+            .performScrollTo().performTouchInput { click() }
+        compose.onNodeWithText("Delete medication").performScrollTo().performTouchInput { click() }
+        compose.onNodeWithText("Delete Lifecycle medicine?").assertExists()
+        compose.onNodeWithText("Delete").performTouchInput { click() }
+        eventually {
+            compose.onAllNodesWithText("Could not delete medication. Please try again.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Medications").assertExists()
+        compose.onNodeWithText("Retry delete").assertIsEnabled()
+        compose.onNodeWithText("Cancel").assertIsEnabled()
+        assertTrue(medicationExists())
+    }
+
     @Test fun submittingDialogStaysVisibleAndPreventsDuplicateDelete() {
         MedicationDeleteTestHook.configure(targetContext, holdBeforeRoom = true)
         seedMedication(); recreateForFixture()

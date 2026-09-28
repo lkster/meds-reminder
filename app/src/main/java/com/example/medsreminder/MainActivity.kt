@@ -23,6 +23,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -50,6 +51,7 @@ import com.example.medsreminder.ui.HistoryScreen
 import com.example.medsreminder.ui.MedicationEditorViewModel
 import com.example.medsreminder.ui.MedicationEditorScreen
 import com.example.medsreminder.ui.MedicationListScreen
+import com.example.medsreminder.ui.MedicationDetailsScreen
 import com.example.medsreminder.ui.MedicationDeleteDialogState
 import com.example.medsreminder.ui.SettingsScreen
 import com.example.medsreminder.ui.AlarmReadinessScreen
@@ -68,7 +70,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class NormalAppPane { MEDICATIONS, HISTORY, SETTINGS, ALARM_READINESS }
+private enum class NormalAppPane { MEDICATIONS, MEDICATION_DETAILS, HISTORY, SETTINGS, ALARM_READINESS }
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { AppDatabase.get(this) }
@@ -174,9 +176,15 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MainContent() {
         var pane by rememberSaveable { mutableStateOf(NormalAppPane.MEDICATIONS) }
+        var selectedMedicationId by rememberSaveable { mutableStateOf<Long?>(null) }
         normalAppBackHandler = {
             when (pane) {
                 NormalAppPane.MEDICATIONS -> false
+                NormalAppPane.MEDICATION_DETAILS -> {
+                    selectedMedicationId = null
+                    pane = NormalAppPane.MEDICATIONS
+                    true
+                }
                 NormalAppPane.HISTORY, NormalAppPane.SETTINGS -> { pane = NormalAppPane.MEDICATIONS; true }
                 NormalAppPane.ALARM_READINESS -> { pane = NormalAppPane.SETTINGS; true }
             }
@@ -222,6 +230,14 @@ class MainActivity : ComponentActivity() {
         if (pane == NormalAppPane.HISTORY) {
             HistoryScreen(history = history, onBack = { pane = NormalAppPane.MEDICATIONS })
             return
+        }
+
+        val selectedMedication = medications?.firstOrNull { it.medication.id == selectedMedicationId }
+        LaunchedEffect(pane, medications, selectedMedicationId) {
+            if (pane == NormalAppPane.MEDICATION_DETAILS && medications != null && selectedMedication == null) {
+                selectedMedicationId = null
+                pane = NormalAppPane.MEDICATIONS
+            }
         }
 
         val capabilityItems = listOf(
@@ -287,11 +303,32 @@ class MainActivity : ComponentActivity() {
                 onHistory = { pane = NormalAppPane.HISTORY },
                 onSettings = { pane = NormalAppPane.SETTINGS },
                 onAdd = editorOwner::openNew,
-                onEdit = editorOwner::openExisting,
+                onOpenDetails = {
+                    selectedMedicationId = it.medication.id
+                    pane = NormalAppPane.MEDICATION_DETAILS
+                },
                 onToggle = ::saveMedicationListToggle,
                 onDelete = ::deleteMedication,
                 deleteDialogState = deleteDialog,
                 onDeleteRequested = { id, name -> deleteDialog = MedicationDeleteDialogState(id, name) },
+                onDismissDelete = { if (deleteDialog?.submitting != true) deleteDialog = null },
+            )
+            NormalAppPane.MEDICATION_DETAILS -> MedicationDetailsScreen(
+                medication = if (medications == null) null else selectedMedication,
+                onBack = {
+                    selectedMedicationId = null
+                    pane = NormalAppPane.MEDICATIONS
+                },
+                onEdit = editorOwner::openExisting,
+                onDeleteRequested = { medicationId, name ->
+                    deleteDialog = MedicationDeleteDialogState(medicationId, name)
+                },
+                onDelete = { medicationId ->
+                    selectedMedicationId = null
+                    pane = NormalAppPane.MEDICATIONS
+                    deleteMedication(medicationId)
+                },
+                deleteDialogState = deleteDialog,
                 onDismissDelete = { if (deleteDialog?.submitting != true) deleteDialog = null },
             )
             NormalAppPane.SETTINGS -> SettingsScreen(

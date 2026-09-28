@@ -150,7 +150,7 @@ fun MedicationListScreen(
     onHistory: () -> Unit,
     onSettings: () -> Unit,
     onAdd: () -> Unit,
-    onEdit: (MedicationWithTimes) -> Unit,
+    onOpenDetails: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
     deleteDialogState: MedicationDeleteDialogState? = null,
@@ -211,7 +211,7 @@ fun MedicationListScreen(
                         MedicationLibraryCard(
                             item = item,
                             medicationNumber = index + 1,
-                            onEdit = onEdit,
+                            onOpenDetails = onOpenDetails,
                             onToggle = onToggle,
                             menuExpanded = actionMenuMedicationId == item.medication.id,
                             onMenuExpandedChange = { expanded ->
@@ -249,13 +249,8 @@ fun MedicationListScreen(
         MedicationDeleteDialogState(it, deleteCandidateName ?: "this medication", localSubmitting)
     }
     dialog?.let { state ->
-        MedicationDecisionDialog(
-            title = "Delete ${state.medicationName}?",
-            body = "Deleting this medication removes its reminder times, pending alarms, and history.",
-            error = state.error,
-            confirmLabel = if (state.error == null) "Delete" else "Retry delete",
-            dismissLabel = "Cancel",
-            submitting = state.submitting,
+        MedicationDeleteDialog(
+            state = state,
             onDismiss = onDismissDelete ?: ::clearDeleteCandidate,
             onConfirm = {
                 if (!state.submitting) {
@@ -265,6 +260,25 @@ fun MedicationListScreen(
             },
         )
     }
+}
+
+/** Medication-local wrapper shared by the Library and Details surfaces. */
+@Composable
+fun MedicationDeleteDialog(
+    state: MedicationDeleteDialogState,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    MedicationDecisionDialog(
+        title = "Delete ${state.medicationName}?",
+        body = "Deleting this medication removes its reminder times, pending alarms, and history.",
+        error = state.error,
+        confirmLabel = if (state.error == null) "Delete" else "Retry delete",
+        dismissLabel = "Cancel",
+        submitting = state.submitting,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+    )
 }
 
 @Composable
@@ -461,7 +475,7 @@ private fun MedicationSearchEmptyState() {
 private fun MedicationLibraryCard(
     item: MedicationWithTimes,
     medicationNumber: Int,
-    onEdit: (MedicationWithTimes) -> Unit,
+    onOpenDetails: (MedicationWithTimes) -> Unit,
     onToggle: (MedicationWithTimes, Boolean) -> Unit,
     menuExpanded: Boolean,
     onMenuExpandedChange: (Boolean) -> Unit,
@@ -471,8 +485,8 @@ private fun MedicationLibraryCard(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 78.dp)
-            .clickable { onEdit(item) }
-            .semantics { contentDescription = "Edit medication $medicationNumber, ${item.medication.name}" },
+            .clickable { onOpenDetails(item) }
+            .semantics { contentDescription = "Medication details $medicationNumber, ${item.medication.name}" },
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = LocalMedsReminderColors.current.surfaceElevated),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -527,6 +541,165 @@ private fun MedicationLibraryCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun MedicationDetailsScreen(
+    medication: MedicationWithTimes?,
+    onBack: () -> Unit,
+    onEdit: (MedicationWithTimes) -> Unit,
+    onDeleteRequested: (Long, String) -> Unit,
+    onDelete: (Long) -> Unit,
+    deleteDialogState: MedicationDeleteDialogState? = null,
+    onDismissDelete: (() -> Unit)? = null,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .semantics { paneTitle = "Medication details" },
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics { contentDescription = "Back" },
+                ) { Icon(Icons.Outlined.ArrowBack, contentDescription = null) }
+            }
+            if (medication == null) {
+                MedicationDetailsLoadingState()
+            } else {
+                MedicationDetailsBody(
+                    item = medication,
+                    onEdit = onEdit,
+                    onDeleteRequested = onDeleteRequested,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+    if (deleteDialogState != null) {
+        MedicationDeleteDialog(
+            state = deleteDialogState,
+            onDismiss = onDismissDelete ?: {},
+            onConfirm = { if (!deleteDialogState.submitting) onDelete(deleteDialogState.medicationId) },
+        )
+    }
+}
+
+@Composable
+private fun MedicationDetailsLoadingState() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Loading medication details…", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Medication information will appear when it is available.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun MedicationDetailsBody(
+    item: MedicationWithTimes,
+    onEdit: (MedicationWithTimes) -> Unit,
+    onDeleteRequested: (Long, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .testTag("medication-details-scroll"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                item.medication.name,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            if (!item.medication.enabled) {
+                Text(
+                    "Reminders off",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        item.medication.instructions?.takeIf { it.isNotBlank() }?.let { instructions ->
+            MedicationDetailsSection("Instructions / notes") { Text(instructions, style = MaterialTheme.typography.bodyLarge) }
+        }
+        MedicationDetailsSection("Reminders") {
+            val reminders = item.reminderTimes.sortedWith(compareBy({ it.minuteOfDay }, { it.id }))
+            if (reminders.isEmpty()) {
+                Text("No reminder times", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    reminders.forEach { reminder ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Outlined.AccessTime, contentDescription = null)
+                                Column {
+                                    Text(formatMinute(reminder.minuteOfDay), style = MaterialTheme.typography.titleMedium)
+                                    Text(formatWeekdays(reminder.weekdayMask), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Button(
+            onClick = { onEdit(item) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            shape = MaterialTheme.shapes.large,
+        ) { Text("Edit medication") }
+        OutlinedButton(
+            onClick = { onDeleteRequested(item.medication.id, item.medication.name) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            shape = MaterialTheme.shapes.large,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        ) { Text("Delete medication") }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun MedicationDetailsSection(title: String, content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = LocalMedsReminderColors.current.surfaceElevated,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
         }
     }
 }

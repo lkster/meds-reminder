@@ -133,7 +133,7 @@ class MedicationScreensTest {
                             onHistory = { historyClicks++ },
                             onSettings = { settingsClicks++ },
                             onAdd = {},
-                            onEdit = {},
+                            onOpenDetails = {},
                             onToggle = { _, _ -> },
                             onDelete = {},
                         )
@@ -189,7 +189,7 @@ class MedicationScreensTest {
                     Box(Modifier.width(180.dp).testTag("m21-medication-card-viewport")) {
                         MedicationListScreen(
                             medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
-                            onEdit = { edited = it }, onToggle = { _, _ -> },
+                            onOpenDetails = { edited = it }, onToggle = { _, _ -> },
                             onDelete = {},
                         )
                     }
@@ -208,7 +208,7 @@ class MedicationScreensTest {
         val scheduleNode = compose.onNode(hasText("Every day", substring = true)).performScrollTo()
         val scheduleBounds = scheduleNode.getUnclippedBoundsInRoot()
         assertTrue(scheduleBounds.left >= viewportBounds.left && scheduleBounds.right <= viewportBounds.right)
-        val editNode = compose.onNodeWithContentDescription("Edit medication 1, $longName").performScrollTo()
+        val editNode = compose.onNodeWithContentDescription("Medication details 1, $longName").performScrollTo()
         val editBounds = editNode.getUnclippedBoundsInRoot()
         editNode.assertHasClickAction()
         assertTrue(editBounds.left >= viewportBounds.left && editBounds.right <= viewportBounds.right)
@@ -229,7 +229,7 @@ class MedicationScreensTest {
                     onHistory = {},
                     onSettings = {},
                     onAdd = { addClicks++ },
-                    onEdit = {},
+                    onOpenDetails = {},
                     onToggle = { _, _ -> },
                     onDelete = {},
                 )
@@ -253,7 +253,7 @@ class MedicationScreensTest {
                     onHistory = {},
                     onSettings = {},
                     onAdd = { addClicks++ },
-                    onEdit = {},
+                    onOpenDetails = {},
                     onToggle = { _, _ -> },
                     onDelete = {},
                 )
@@ -279,7 +279,7 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(first, second, third), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = { edited = it }, onToggle = { _, _ -> }, onDelete = {},
+                    onOpenDetails = { edited = it }, onToggle = { _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -289,7 +289,7 @@ class MedicationScreensTest {
         val secondMatchBounds = compose.onNodeWithText("Beta tablet").getUnclippedBoundsInRoot()
         compose.onNodeWithText("Alpha capsule").assertDoesNotExist()
         assertTrue(firstMatchBounds.top < secondMatchBounds.top)
-        compose.onNodeWithContentDescription("Edit medication 2, Beta tablet").performClick()
+        compose.onNodeWithContentDescription("Medication details 2, Beta tablet").performClick()
         compose.runOnIdle { assertEquals(second.medication.id, edited?.medication?.id) }
     }
 
@@ -301,7 +301,7 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(first, second), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -324,7 +324,7 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -344,7 +344,7 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -376,7 +376,7 @@ class MedicationScreensTest {
                 ) {
                     MedicationListScreen(
                         medications = listOf(first, second, last), onHistory = {}, onSettings = {}, onAdd = {},
-                        onEdit = {}, onToggle = { _, _ -> }, onDelete = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
                     )
                 }
             }
@@ -385,7 +385,7 @@ class MedicationScreensTest {
         val viewportBounds = compose.onNodeWithTag("m29-landscape-viewport").getUnclippedBoundsInRoot()
         compose.onNodeWithTag("medication-search").assertExists()
         compose.onNodeWithText("First medication").assertExists()
-        val lastEdit = compose.onNodeWithContentDescription("Edit medication 3, Last medication").performScrollTo()
+        val lastEdit = compose.onNodeWithContentDescription("Medication details 3, Last medication").performScrollTo()
         val lastActions = compose.onNodeWithContentDescription("Medication actions 3, Last medication").performScrollTo()
         val fab = compose.onNodeWithContentDescription("Add medication")
         val lastEditBounds = lastEdit.getUnclippedBoundsInRoot()
@@ -526,7 +526,7 @@ class MedicationScreensTest {
                     onHistory = {},
                     onSettings = {},
                     onAdd = {},
-                    onEdit = {},
+                onOpenDetails = {},
                     onToggle = { _, _ -> },
                     onDelete = {},
                 )
@@ -716,7 +716,7 @@ class MedicationScreensTest {
                     onHistory = {},
                     onSettings = {},
                     onAdd = {},
-                    onEdit = {},
+                onOpenDetails = {},
                     onToggle = { _, _ -> },
                     onDelete = {},
                 )
@@ -737,7 +737,7 @@ class MedicationScreensTest {
                     onHistory = {},
                     onSettings = {},
                     onAdd = {},
-                    onEdit = {},
+                onOpenDetails = {},
                     onToggle = { medication, enabled -> toggled = medication to enabled },
                     onDelete = {},
                 )
@@ -783,7 +783,7 @@ class MedicationScreensTest {
             MaterialTheme {
                 MedicationListScreen(
                     medications = listOf(first, second), onHistory = {}, onSettings = {}, onAdd = {},
-                    onEdit = { editedId = it.medication.id }, onToggle = { _, _ -> },
+                    onOpenDetails = { editedId = it.medication.id }, onToggle = { _, _ -> },
                     onDelete = { deletedId = it },
                 )
             }
@@ -793,8 +793,8 @@ class MedicationScreensTest {
             .assertHasClickAction()
         compose.onNodeWithContentDescription("Medication actions 2, Medicine")
             .assertHasClickAction()
-        compose.onNodeWithContentDescription("Edit medication 1, Medicine").assertHasClickAction()
-        compose.onNodeWithContentDescription("Edit medication 2, Medicine").assertHasClickAction()
+        compose.onNodeWithContentDescription("Medication details 1, Medicine").assertHasClickAction()
+        compose.onNodeWithContentDescription("Medication details 2, Medicine").assertHasClickAction()
             .performScrollTo().performTouchInput { click() }
         compose.runOnIdle { assertEquals(2L, editedId) }
 
@@ -974,8 +974,105 @@ class MedicationScreensTest {
         weekday("Thursday").assertIsNotSelected()
         weekday("Monday").assertIsSelected()
     }
+    @Test
+    fun medicationDetailsShowsSupportedFactsAndOmitsUnsupportedConcepts() {
+        val item = MedicationWithTimes(
+            MedicationEntity(37L, "Lisinopril", "Take with water every morning.", true),
+            listOf(
+                ReminderTimeEntity(11L, 37L, 20 * 60, MONDAY_WEDNESDAY_FRIDAY),
+                ReminderTimeEntity(10L, 37L, 8 * 60, WeekdayMask.ALL),
+            ),
+        )
+        compose.setContent { MaterialTheme { MedicationDetailsScreen(item, {}, {}, { _, _ -> }, {}) } }
 
+        compose.onNodeWithText("Lisinopril").assertExists()
+        compose.onNodeWithText("Instructions / notes").assertExists()
+        compose.onNodeWithText("Take with water every morning.").assertExists()
+        compose.onNodeWithText("08:00").assertExists()
+        compose.onNodeWithText("20:00").assertExists()
+        compose.onNodeWithText("Every day").assertExists()
+        compose.onNodeWithText("Mon Wed Fri").assertExists()
+        compose.onNodeWithText("Dose").assertDoesNotExist()
+        compose.onNodeWithText("Add schedule").assertDoesNotExist()
+    }
 
+    @Test
+    fun medicationDetailsRoutesEditAndDeleteByStableIdentity() {
+        val item = persistedMedication(WeekdayMask.ALL, id = 44L, name = "Duplicate name")
+        var editedId: Long? = null
+        var deletedId: Long? = null
+        var dialog by mutableStateOf<MedicationDeleteDialogState?>(null)
+        compose.setContent {
+            MaterialTheme {
+                MedicationDetailsScreen(
+                    medication = item,
+                    onBack = {},
+                    onEdit = { editedId = it.medication.id },
+                    onDeleteRequested = { id, name -> dialog = MedicationDeleteDialogState(id, name) },
+                    onDelete = { id -> deletedId = id },
+                    deleteDialogState = dialog,
+                    onDismissDelete = { dialog = null },
+                )
+            }
+        }
+        compose.onNodeWithText("Edit medication").performClick()
+        compose.runOnIdle { assertEquals(44L, editedId) }
+        compose.onNodeWithText("Delete medication").performClick()
+        compose.onNodeWithText("Delete Duplicate name?").assertExists()
+        compose.onNodeWithText("Delete").performClick()
+        compose.runOnIdle { assertEquals(44L, deletedId) }
+    }
+
+    @Test
+    fun medicationDetailsDisabledAndLoadingStatesRemainTruthful() {
+        val disabled = persistedMedication(WeekdayMask.ALL, id = 45L, name = "Paused").copy(
+            medication = MedicationEntity(45L, "Paused", null, false),
+        )
+        var showLoading by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                MedicationDetailsScreen(if (showLoading) null else disabled, {}, {}, { _, _ -> }, {})
+            }
+        }
+        compose.onNodeWithText("Loading medication details…").assertExists()
+        compose.onNodeWithText("Paused").assertDoesNotExist()
+        compose.onNodeWithText("Edit medication").assertDoesNotExist()
+        compose.runOnIdle { showLoading = false }
+        compose.onNodeWithText("Reminders off").assertExists()
+        compose.onNodeWithText("Edit medication").assertExists()
+    }
+
+    @Test
+    fun medicationDetailsLargeTextWrapsAndKeepsActionsReachable() {
+        val longName = "A medication name that remains readable at large text on narrow screens"
+        val longNotes = "Long instructions remain available without clipping while the details body scrolls on a narrow device."
+        val item = MedicationWithTimes(
+            MedicationEntity(46L, longName, longNotes, true),
+            listOf(
+                ReminderTimeEntity(1L, 46L, 8 * 60, WeekdayMask.ALL),
+                ReminderTimeEntity(2L, 46L, 12 * 60, MONDAY_WEDNESDAY_FRIDAY),
+                ReminderTimeEntity(3L, 46L, 20 * 60, MONDAY_WEDNESDAY_FRIDAY),
+            ),
+        )
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2f)) {
+                MaterialTheme { Box(Modifier.width(360.dp).testTag("m38-details-viewport")) {
+                    MedicationDetailsScreen(item, {}, {}, { _, _ -> }, {})
+                } }
+            }
+        }
+        val viewport = compose.onNodeWithTag("m38-details-viewport").getUnclippedBoundsInRoot()
+        val name = compose.onNodeWithText(longName).getUnclippedBoundsInRoot()
+        assertTrue(name.left >= viewport.left && name.right <= viewport.right)
+        val edit = compose.onNodeWithText("Edit medication").performScrollTo()
+        val delete = compose.onNodeWithText("Delete medication").performScrollTo()
+        listOf(edit, delete).forEach {
+            val bounds = it.getUnclippedBoundsInRoot()
+            assertTrue(bounds.left >= viewport.left && bounds.right <= viewport.right)
+            assertTrue(bounds.right - bounds.left >= 48.dp || bounds.bottom - bounds.top >= 48.dp)
+        }
+    }
 
     private fun draftWith(vararg times: EditorTime) = EditorDraft(
         id = 1L,
