@@ -87,8 +87,8 @@ class HistoryModelsTest {
         val older = LocalDateTime.of(2026, 9, 17, 20, 0).atZone(zone).toInstant().toEpochMilli()
         val groups = groupHistoryByScheduledDate(
             listOf(
-                HistoryItem("newer", "Medicine", newer, null, HistoryOutcome.TAKEN, false),
-                HistoryItem("older", "Medicine", older, null, HistoryOutcome.SKIPPED, false),
+                HistoryItem("newer", 1L, "Medicine", newer, null, HistoryOutcome.TAKEN, false),
+                HistoryItem("older", 2L, "Medicine", older, null, HistoryOutcome.SKIPPED, false),
             ),
             zone,
         )
@@ -105,20 +105,25 @@ class HistoryModelsTest {
 
         assertEquals(
             "Taken at Sat, 19 Sep 2026 \u2022 00:05",
-            formatHistoryResult(HistoryItem("taken", "Medicine", scheduled, resolved, HistoryOutcome.TAKEN, false), zone),
+            formatHistoryResult(HistoryItem("taken", 1L, "Medicine", scheduled, resolved, HistoryOutcome.TAKEN, false), zone),
         )
         assertEquals(
             "Skipped at 00:05",
-            formatHistoryResult(HistoryItem("skip", "Medicine", resolved, resolved, HistoryOutcome.SKIPPED, false), zone),
+            formatHistoryResult(HistoryItem("skip", 1L, "Medicine", resolved, resolved, HistoryOutcome.SKIPPED, false), zone),
         )
         assertEquals(
             "Timed out at 00:05",
-            formatHistoryResult(HistoryItem("timeout", "Medicine", resolved, resolved, HistoryOutcome.NO_RESPONSE, false), zone),
+            formatHistoryResult(HistoryItem("timeout", 1L, "Medicine", resolved, resolved, HistoryOutcome.NO_RESPONSE, false), zone),
         )
         assertEquals(
             null,
-            formatHistoryResult(HistoryItem("unknown", "Medicine", scheduled, null, HistoryOutcome.TAKEN, false), zone),
+            formatHistoryResult(HistoryItem("unknown", 1L, "Medicine", scheduled, null, HistoryOutcome.TAKEN, false), zone),
         )
+    }
+
+    @Test
+    fun mappingPreservesMedicationIdentity() {
+        assertEquals(1L, occurrence(status = OccurrenceStatus.TAKEN).toHistoryItem().medicationId)
     }
 
     private fun occurrence(

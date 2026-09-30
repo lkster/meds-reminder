@@ -228,7 +228,14 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (pane == NormalAppPane.HISTORY) {
-            HistoryScreen(history = history, onBack = { pane = NormalAppPane.MEDICATIONS })
+            HistoryScreen(
+                history = history,
+                onBack = { pane = NormalAppPane.MEDICATIONS },
+                onMedicationDetails = { medicationId ->
+                    selectedMedicationId = medicationId
+                    pane = NormalAppPane.MEDICATION_DETAILS
+                },
+            )
             return
         }
 

@@ -21,13 +21,19 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,12 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import com.example.medsreminder.data.HistoryOccurrence
@@ -74,6 +82,7 @@ enum class HistoryFilter(val label: String) {
 
 data class HistoryItem(
     val id: String,
+    val medicationId: Long,
     val medicationName: String,
     val scheduledAtEpochMillis: Long,
     val resolvedAtEpochMillis: Long?,
@@ -83,6 +92,7 @@ data class HistoryItem(
 
 fun HistoryOccurrence.toHistoryItem(): HistoryItem = HistoryItem(
     id = occurrenceId,
+    medicationId = medicationId,
     medicationName = medicationName,
     scheduledAtEpochMillis = scheduledAtEpochMillis,
     resolvedAtEpochMillis = resolvedAtEpochMillis,
@@ -141,13 +151,22 @@ internal fun formatHistoryResult(item: HistoryItem, zoneId: ZoneId): String? {
 fun HistoryScreen(
     history: List<HistoryItem>?,
     onBack: () -> Unit,
+    onMedicationDetails: (Long) -> Unit,
 ) {
     var selectedFilter by rememberSaveable { mutableStateOf(HistoryFilter.ALL) }
+    var selectedHistoryOccurrenceId by rememberSaveable { mutableStateOf<String?>(null) }
     val zoneId = ZoneId.systemDefault()
+    val selectedItem = history?.firstOrNull { it.id == selectedHistoryOccurrenceId }
+    androidx.compose.runtime.LaunchedEffect(history, selectedHistoryOccurrenceId) {
+        if (history != null && selectedHistoryOccurrenceId != null && selectedItem == null) {
+            selectedHistoryOccurrenceId = null
+        }
+    }
     val filteredHistory = history?.filter(selectedFilter::matches).orEmpty()
     val dayGroups = groupHistoryByScheduledDate(filteredHistory, zoneId)
 
-    BackHandler(onBack = onBack)
+    BackHandler(enabled = selectedItem != null) { selectedHistoryOccurrenceId = null }
+    BackHandler(enabled = selectedItem == null, onBack = onBack)
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -193,13 +212,24 @@ fun HistoryScreen(
                 group.items.forEachIndexed { itemIndex, item ->
                     item(key = item.id) {
                         Column {
-                            HistoryCard(item, zoneId)
+                            HistoryCard(item, zoneId) { selectedHistoryOccurrenceId = item.id }
                             if (itemIndex != group.items.lastIndex) Spacer(Modifier.height(11.dp))
                         }
                     }
                 }
             }
         }
+    }
+    selectedItem?.let { item ->
+        HistoryDetailsSheet(
+            item = item,
+            zoneId = zoneId,
+            onDismiss = { selectedHistoryOccurrenceId = null },
+            onMedicationDetails = {
+                selectedHistoryOccurrenceId = null
+                onMedicationDetails(item.medicationId)
+            },
+        )
     }
 }
 
@@ -277,7 +307,7 @@ private fun HistoryFilterPill(
 }
 
 @Composable
-private fun HistoryCard(item: HistoryItem, zoneId: ZoneId) {
+private fun HistoryCard(item: HistoryItem, zoneId: ZoneId, onClick: () -> Unit) {
     val statusColors = LocalMedsReminderColors.current
     val outcomeColor = when (item.outcome) {
         HistoryOutcome.TAKEN -> statusColors.success
@@ -285,7 +315,13 @@ private fun HistoryCard(item: HistoryItem, zoneId: ZoneId) {
         HistoryOutcome.NO_RESPONSE -> MaterialTheme.colorScheme.error
     }
     Card(
-        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 80.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 80.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "History event: ${item.medicationName}, ${item.outcome.label}"
+            }
+            .clickable(role = Role.Button, onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = statusColors.surfaceElevated),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -302,6 +338,11 @@ private fun HistoryCard(item: HistoryItem, zoneId: ZoneId) {
                 )
                 Spacer(Modifier.padding(start = 8.dp))
                 HistoryOutcomePill(item.outcome.label, outcomeColor)
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -328,6 +369,80 @@ private fun HistoryCard(item: HistoryItem, zoneId: ZoneId) {
                 }
             }
         }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun HistoryDetailsSheet(
+    item: HistoryItem,
+    zoneId: ZoneId,
+    onDismiss: () -> Unit,
+    onMedicationDetails: () -> Unit,
+) {
+    val statusColors = LocalMedsReminderColors.current
+    val outcomeColor = when (item.outcome) {
+        HistoryOutcome.TAKEN -> statusColors.success
+        HistoryOutcome.SKIPPED -> statusColors.warning
+        HistoryOutcome.NO_RESPONSE -> MaterialTheme.colorScheme.error
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("history-details-sheet")
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, top = 4.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "History details",
+                    modifier = Modifier.weight(1f).semantics { heading() },
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close history details")
+                }
+            }
+            Text(item.medicationName, style = MaterialTheme.typography.headlineSmall)
+            HistoryDetailFact("Scheduled", "${formatHistoryDay(historyLocalDate(item.scheduledAtEpochMillis, zoneId))} • ${HISTORY_TIME_FORMATTER.format(historyLocalDateTime(item.scheduledAtEpochMillis, zoneId))}")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Final status", style = MaterialTheme.typography.titleSmall)
+                HistoryOutcomePill(item.outcome.label, outcomeColor)
+            }
+            formatHistoryResult(item, zoneId)?.let { result ->
+                HistoryDetailFact("Result", result)
+            }
+            if (item.afterSnooze) {
+                Text(
+                    "After snooze",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            TextButton(
+                onClick = onMedicationDetails,
+                modifier = Modifier.sizeIn(minHeight = 48.dp),
+            ) {
+                Text("Medication details")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryDetailFact(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

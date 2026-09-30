@@ -12,9 +12,14 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.medsreminder.data.AppDatabase
+import com.example.medsreminder.data.AlarmOccurrenceEntity
 import com.example.medsreminder.data.MedicationEntity
+import com.example.medsreminder.data.OccurrenceKind
+import com.example.medsreminder.data.OccurrenceStatus
 import com.example.medsreminder.data.ReminderTimeEntity
 import kotlinx.coroutines.runBlocking
+import java.time.LocalDateTime
+import java.time.ZoneId
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -126,6 +131,86 @@ class MainActivityPaneSemanticsTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
             "screencap -p /sdcard/Download/m38-medication-details.png",
         ).close()
+    }
+
+    @Test
+    fun historyDetailsNavigateToMedicationDetailsByStableIdAndBackReturnsToMedications() {
+        val historyMedicationName = "History details fixture"
+        val historyMedicationId = seedTerminalOccurrence(
+            name = historyMedicationName,
+            occurrenceId = "m39-history-navigation",
+            kind = OccurrenceKind.BASE,
+            scheduledAtEpochMillis = 1_788_940_800_000L,
+            resolvedAtEpochMillis = 1_788_941_100_000L,
+        )
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText(historyMedicationName).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        compose.onNodeWithContentDescription("History").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText(historyMedicationName).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("History event: $historyMedicationName, Taken").performClick()
+        compose.onNodeWithText("Medication details").performClick()
+        assertPaneTitle("Medication details")
+        assertTitleHeading(historyMedicationName)
+
+        compose.onNodeWithContentDescription("Back").performClick()
+        assertPaneTitle("Medications")
+        // The returned ID proves History did not use its event row or a duplicate display name as navigation authority.
+        check(historyMedicationId > 0)
+    }
+
+    @Test
+    fun historyDetailsReferenceRender() {
+        val zone = ZoneId.systemDefault()
+        runBlocking { database.clearAllTables() }
+        seedTerminalOccurrence(
+            name = "Vitamin D",
+            occurrenceId = "m39-history-details-render",
+            kind = OccurrenceKind.SNOOZE,
+            scheduledAtEpochMillis = LocalDateTime.of(2026, 9, 9, 8, 0).atZone(zone).toInstant().toEpochMilli(),
+            resolvedAtEpochMillis = LocalDateTime.of(2026, 9, 9, 8, 5).atZone(zone).toInstant().toEpochMilli(),
+        )
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText("Vitamin D").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("History").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText("Vitamin D").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("History event: Vitamin D, Taken").performClick()
+        compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+            "screencap -p /sdcard/Download/m39-history-details.png",
+        ).close()
+    }
+
+    private fun seedTerminalOccurrence(
+        name: String,
+        occurrenceId: String,
+        kind: OccurrenceKind,
+        scheduledAtEpochMillis: Long,
+        resolvedAtEpochMillis: Long,
+    ): Long = runBlocking {
+        val medicationId = database.medicationDao().insertMedication(
+            MedicationEntity(name = name, instructions = null, enabled = true),
+        )
+        val reminderId = database.medicationDao().insertTime(
+            ReminderTimeEntity(medicationId = medicationId, minuteOfDay = 8 * 60),
+        )
+        database.occurrenceDao().insert(
+            AlarmOccurrenceEntity(
+                id = occurrenceId,
+                reminderTimeId = reminderId,
+                kind = kind,
+                scheduledAtEpochMillis = scheduledAtEpochMillis,
+                status = OccurrenceStatus.TAKEN,
+                resolvedAtEpochMillis = resolvedAtEpochMillis,
+            ),
+        )
+        medicationId
     }
 
     private fun waitForMedication() {

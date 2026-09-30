@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
@@ -17,6 +18,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -58,6 +61,7 @@ class HistoryScreenTest {
                         item("skipped", "Medicine", localEpoch(2026, 9, 18, 7, 40, zone), localEpoch(2026, 9, 18, 7, 43, zone), HistoryOutcome.SKIPPED),
                     ),
                     onBack = {},
+                    onMedicationDetails = {},
                 )
             }
         }
@@ -80,6 +84,7 @@ class HistoryScreenTest {
                         item("cross", "Medicine", localEpoch(2026, 9, 18, 23, 55, zone), localEpoch(2026, 9, 19, 0, 5, zone), HistoryOutcome.TAKEN),
                     ),
                     onBack = {},
+                    onMedicationDetails = {},
                 )
             }
         }
@@ -98,6 +103,7 @@ class HistoryScreenTest {
                 HistoryScreen(
                     history = listOf(item("taken", "Medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)),
                     onBack = {},
+                    onMedicationDetails = {},
                 )
             }
         }
@@ -116,7 +122,7 @@ class HistoryScreenTest {
         val taken = item("taken", "Taken medication", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)
         val skipped = item("skipped", "Skipped medication", localEpoch(2026, 9, 18, 7, 0, zone), null, HistoryOutcome.SKIPPED)
         val noResponse = item("no-response", "No response medication", localEpoch(2026, 9, 18, 6, 0, zone), null, HistoryOutcome.NO_RESPONSE)
-        compose.setContent { MedsReminderTheme { HistoryScreen(history = listOf(taken, skipped, noResponse), onBack = {}) } }
+        compose.setContent { MedsReminderTheme { HistoryScreen(history = listOf(taken, skipped, noResponse), onBack = {}, onMedicationDetails = {}) } }
 
         fun assertOnly(visible: String) {
             listOf("Taken medication", "Skipped medication", "No response medication").forEach { name ->
@@ -124,7 +130,11 @@ class HistoryScreenTest {
                 else compose.onNodeWithText(name).assertDoesNotExist()
             }
         }
-        fun filter(label: String) = compose.onNode(hasText(label).and(hasClickAction()))
+        fun filter(label: String) = compose.onNode(
+            hasText(label)
+                .and(hasClickAction())
+                .and(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)),
+        )
 
         filter("All").assertIsSelected()
         listOf("Taken medication", "Skipped medication", "No response medication").forEach {
@@ -164,7 +174,7 @@ class HistoryScreenTest {
             CompositionLocalProvider(LocalDensity provides Density(currentPixelDensity, 2.0f)) {
                 Box(Modifier.width(360.dp).testTag("m28-history-filter-viewport")) {
                     MedsReminderTheme {
-                        HistoryScreen(history = listOf(item("taken", "Medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)), onBack = {})
+                        HistoryScreen(history = listOf(item("taken", "Medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)), onBack = {}, onMedicationDetails = {})
                     }
                 }
             }
@@ -172,7 +182,11 @@ class HistoryScreenTest {
 
         val viewport = compose.onNodeWithTag("m28-history-filter-viewport").getUnclippedBoundsInRoot()
         val filters = listOf("All", "Taken", "Skipped", "No response").map { label ->
-            compose.onNode(hasText(label).and(hasClickAction()))
+            compose.onNode(
+                hasText(label)
+                    .and(hasClickAction())
+                    .and(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)),
+            )
         }
         val bounds = filters.map { node ->
             node.assertHasClickAction()
@@ -197,6 +211,7 @@ class HistoryScreenTest {
                         HistoryScreen(
                             history = listOf(item("long", longName, localEpoch(2026, 9, 18, 8, 0, zone), localEpoch(2026, 9, 18, 8, 5, zone), HistoryOutcome.NO_RESPONSE, true)),
                             onBack = {},
+                            onMedicationDetails = {},
                         )
                     }
                 }
@@ -212,6 +227,9 @@ class HistoryScreenTest {
         compose.onNodeWithText("Timed out at 08:05").assertExists()
         compose.onNodeWithText("After snooze").assertExists()
         compose.onAllNodesWithText("No response", useUnmergedTree = true).assertCountEquals(2)
+        compose.onNodeWithContentDescription("History event: $longName, No response").performClick()
+        compose.onNodeWithContentDescription("Close history details").assertHasClickAction()
+        compose.onNodeWithText("Medication details").performScrollTo().assertHasClickAction()
     }
 
     @Test
@@ -219,7 +237,7 @@ class HistoryScreenTest {
         val zone = ZoneId.systemDefault()
         compose.setContent {
             MedsReminderTheme {
-                HistoryScreen(history = listOf(item("day", "Medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)), onBack = {})
+                HistoryScreen(history = listOf(item("day", "Medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)), onBack = {}, onMedicationDetails = {})
             }
         }
 
@@ -231,7 +249,7 @@ class HistoryScreenTest {
     @Test
     fun emptyHistoryUsesTransitionalCopyAndBack() {
         var backCalls = 0
-        compose.setContent { MedsReminderTheme { HistoryScreen(history = emptyList(), onBack = { backCalls++ }) } }
+        compose.setContent { MedsReminderTheme { HistoryScreen(history = emptyList(), onBack = { backCalls++ }, onMedicationDetails = {}) } }
 
         compose.onNodeWithText("No history yet").assertExists()
         compose.onNodeWithText("Resolved medication reminders will appear here.").assertExists()
@@ -243,7 +261,7 @@ class HistoryScreenTest {
     @Test
     fun loadingHistoryKeepsDisabledFiltersAndBackWithoutEmptyStateCopy() {
         var backCalls = 0
-        compose.setContent { MedsReminderTheme { HistoryScreen(history = null, onBack = { backCalls++ }) } }
+        compose.setContent { MedsReminderTheme { HistoryScreen(history = null, onBack = { backCalls++ }, onMedicationDetails = {}) } }
 
         compose.onNodeWithText("History").assertExists()
         compose.onNodeWithText("Loading history\u2026").assertExists()
@@ -254,12 +272,78 @@ class HistoryScreenTest {
     }
 
     @Test
+    fun historyCardDetailsUseStableMedicationIdAndOnlySupportedFacts() {
+        val zone = ZoneId.systemDefault()
+        var detailsMedicationId: Long? = null
+        compose.setContent {
+            MedsReminderTheme {
+                HistoryScreen(
+                    history = listOf(
+                        item(
+                            id = "first",
+                            name = "Same name",
+                            scheduled = localEpoch(2026, 9, 9, 8, 0, zone),
+                            resolved = localEpoch(2026, 9, 9, 8, 5, zone),
+                            outcome = HistoryOutcome.TAKEN,
+                            afterSnooze = true,
+                            medicationId = 42L,
+                        ),
+                        item(
+                            id = "second",
+                            name = "Same name",
+                            scheduled = localEpoch(2026, 9, 8, 8, 0, zone),
+                            resolved = null,
+                            outcome = HistoryOutcome.SKIPPED,
+                            medicationId = 7L,
+                        ),
+                    ),
+                    onBack = {},
+                    onMedicationDetails = { detailsMedicationId = it },
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("History event: Same name, Taken").performClick()
+        compose.onNodeWithText("History details").assertExists()
+        compose.onNodeWithText("Wed, 9 Sep 2026 • 08:00").assertExists()
+        fun sheetContains(text: String) = compose.onNode(
+            hasTestTag("history-details-sheet").and(hasAnyDescendant(hasText(text))),
+        ).assertExists()
+        sheetContains("Taken at 08:05")
+        sheetContains("After snooze")
+        compose.onNodeWithText("Edit entry").assertDoesNotExist()
+        compose.onNodeWithText("Dose").assertDoesNotExist()
+        compose.onNodeWithText("Medication details").performClick()
+        assertEquals(42L, detailsMedicationId)
+    }
+
+    @Test
+    fun closingDetailsReturnsToTheSameHistoryBrowseState() {
+        val zone = ZoneId.systemDefault()
+        compose.setContent {
+            MedsReminderTheme {
+                HistoryScreen(
+                    history = listOf(item("entry", "Medicine", localEpoch(2026, 9, 9, 8, 0, zone), null, HistoryOutcome.TAKEN)),
+                    onBack = {},
+                    onMedicationDetails = {},
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("History event: Medicine, Taken").performClick()
+        compose.onNodeWithContentDescription("Close history details").performClick()
+        compose.onNodeWithText("History details").assertDoesNotExist()
+        compose.onNodeWithText("Medicine").assertExists()
+        compose.onNodeWithText("All").assertIsSelected()
+    }
+
+    @Test
     fun historyEntryAndBackReturnToMedicationList() {
         var historyVisible by mutableStateOf(false)
         compose.setContent {
             MedsReminderTheme {
                 if (historyVisible) {
-                    HistoryScreen(history = emptyList(), onBack = { historyVisible = false })
+                    HistoryScreen(history = emptyList(), onBack = { historyVisible = false }, onMedicationDetails = {})
                 } else {
                     MedicationListScreen(emptyList(), { historyVisible = true }, {}, {}, {}, { _, _ -> }, {})
                 }
@@ -288,11 +372,18 @@ class HistoryScreenTest {
         }
         compose.onNodeWithContentDescription("Medication actions 1, Medicine").performClick()
         compose.onNodeWithText("Delete").performClick()
-        compose.onNodeWithText("Its reminder times, pending alarms, and history will be removed.").assertExists()
+        compose.onNodeWithText("Deleting this medication removes its reminder times, pending alarms, and history.").assertExists()
     }
 
-    private fun item(id: String, name: String, scheduled: Long, resolved: Long?, outcome: HistoryOutcome, afterSnooze: Boolean = false) =
-        HistoryItem(id, name, scheduled, resolved, outcome, afterSnooze)
+    private fun item(
+        id: String,
+        name: String,
+        scheduled: Long,
+        resolved: Long?,
+        outcome: HistoryOutcome,
+        afterSnooze: Boolean = false,
+        medicationId: Long = 1L,
+    ) = HistoryItem(id, medicationId, name, scheduled, resolved, outcome, afterSnooze)
 
     private fun localEpoch(year: Int, month: Int, day: Int, hour: Int, minute: Int, zone: ZoneId): Long =
         LocalDateTime.of(year, month, day, hour, minute).atZone(zone).toInstant().toEpochMilli()

@@ -1,9 +1,15 @@
-# Meds Reminder M38
+# Meds Reminder M39
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M39 adds read-only History event details. Tapping a factual History event opens a normal-app bottom
+sheet with its persisted scheduled time, terminal outcome/result, and Snooze context, and can open
+the existing Room-backed Medication Details screen by stable medication ID. History remains
+read-only: editing, status correction, dose/form/icon, and richer schedule concepts are absent.
+Room schema and alarm-domain behavior are unchanged.
 
 M38 adds a Room-backed Medication Details surface between the Medication Library and editor.
 It presents supported medication name, optional notes, and independently scheduled reminder facts,
