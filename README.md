@@ -1,9 +1,14 @@
-# Meds Reminder M39
+# Meds Reminder M40
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M40 adds an Activity-local History read-failure and retry state. Initial read failures retain the
+History shell and disabled filters with inline Retry; refresh failures preserve the last authoritative
+History content and add a compact retry notice. Room remains the authoritative source, and no History
+write path or shared loading/retry framework was added.
 
 M39 adds read-only History event details. Tapping a factual History event opens a normal-app bottom
 sheet with its persisted scheduled time, terminal outcome/result, and Snooze context, and can open

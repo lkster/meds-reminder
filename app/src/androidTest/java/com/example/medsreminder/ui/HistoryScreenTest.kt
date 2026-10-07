@@ -15,6 +15,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
@@ -269,6 +270,88 @@ class HistoryScreenTest {
         compose.onNodeWithText("No history yet").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
         assertEquals(1, backCalls)
+    }
+
+    @Test
+    fun initialReadFailureKeepsHistoryShellAndDisabledFiltersWithoutLoadingOrEmptyCopy() {
+        compose.setContent {
+            MedsReminderTheme {
+                HistoryScreen(history = null, onBack = {}, onMedicationDetails = {}, readFailed = true)
+            }
+        }
+
+        compose.onNodeWithText("History").assertExists()
+        compose.onNodeWithText("All").assertIsNotEnabled()
+        compose.onNodeWithText("Could not load history").assertExists()
+        compose.onNodeWithText("History is unavailable right now.").assertExists()
+        compose.onNodeWithText("Try again").assertHasClickAction()
+        compose.onNodeWithText("Loading history…").assertDoesNotExist()
+        compose.onNodeWithTag("history-loading").assertDoesNotExist()
+        compose.onNodeWithText("No history yet").assertDoesNotExist()
+    }
+
+    @Test
+    fun initialReadFailureRetryInvokesCallbackOnce() {
+        var retries = 0
+        compose.setContent {
+            MedsReminderTheme {
+                HistoryScreen(
+                    history = null,
+                    onBack = {},
+                    onMedicationDetails = {},
+                    readFailed = true,
+                    onRetryRead = { retries++ },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Try again").performClick()
+        assertEquals(1, retries)
+    }
+
+    @Test
+    fun refreshFailurePreservesAuthoritativeHistoryAndDetailsInteraction() {
+        val zone = ZoneId.systemDefault()
+        compose.setContent {
+            MedsReminderTheme {
+                HistoryScreen(
+                    history = listOf(item("entry", "Retained medicine", localEpoch(2026, 9, 18, 8, 0, zone), null, HistoryOutcome.TAKEN)),
+                    onBack = {},
+                    onMedicationDetails = {},
+                    readFailed = true,
+                )
+            }
+        }
+
+        compose.onNodeWithText("All").assertIsEnabled()
+        compose.onNodeWithText("History could not be refreshed.").assertExists()
+        compose.onNodeWithText("Try again").assertHasClickAction()
+        compose.onNodeWithText("Retained medicine").assertExists()
+        compose.onNodeWithContentDescription("History event: Retained medicine, Taken").performClick()
+        compose.onNodeWithText("History details").assertExists()
+    }
+
+    @Test
+    fun initialReadFailureWrapsAndKeepsRetryReachableAtLargeText() {
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 2.0f)) {
+                Box(Modifier.width(320.dp).testTag("m40-history-read-failure-viewport")) {
+                    MedsReminderTheme {
+                        HistoryScreen(history = null, onBack = {}, onMedicationDetails = {}, readFailed = true)
+                    }
+                }
+            }
+        }
+
+        val viewport = compose.onNodeWithTag("m40-history-read-failure-viewport").getUnclippedBoundsInRoot()
+        compose.onNodeWithText("Could not load history").performScrollTo().assertExists()
+        compose.onNodeWithText("History is unavailable right now.").performScrollTo().assertExists()
+        val retry = compose.onNodeWithText("Try again").performScrollTo()
+        val retryBounds = retry.getUnclippedBoundsInRoot()
+        assertTrue(retryBounds.left >= viewport.left && retryBounds.right <= viewport.right)
+        assertTrue(retryBounds.top >= viewport.top && retryBounds.bottom <= viewport.bottom)
+        assertTrue(retryBounds.bottom - retryBounds.top >= 48.dp)
     }
 
     @Test

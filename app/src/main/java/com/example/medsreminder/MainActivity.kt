@@ -63,6 +63,8 @@ import java.time.ZoneId
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -81,6 +83,8 @@ class MainActivity : ComponentActivity() {
     private var medications by mutableStateOf<List<MedicationWithTimes>?>(null)
     // Null until this Activity receives its first authoritative Room history emission.
     private var history by mutableStateOf<List<HistoryItem>?>(null)
+    private var historyReadFailed by mutableStateOf(false)
+    private var historyCollectionJob: Job? = null
     private lateinit var editorOwner: MedicationEditorViewModel
     private var capabilities by mutableStateOf(CapabilityState())
     private var alarmPreferences by mutableStateOf(
@@ -141,16 +145,30 @@ class MainActivity : ComponentActivity() {
                 MedicationListLoadingTestHook.markInitialRoomEmission(applicationContext)
             }
         }
-        lifecycleScope.launch {
-            HistoryLoadingTestHook.beforeInitialRoomCollection(applicationContext)
-            database.occurrenceDao().observeHistory().collectLatest { occurrences ->
-                history = occurrences.map(HistoryOccurrence::toHistoryItem)
-                HistoryLoadingTestHook.markInitialRoomEmission(applicationContext)
-            }
-        }
+        startHistoryCollection()
         setContent {
             MedsReminderTheme {
                 Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) { MainContent() }
+            }
+        }
+    }
+
+    private fun startHistoryCollection() {
+        if (historyCollectionJob?.isActive == true) return
+        historyReadFailed = false
+        historyCollectionJob = lifecycleScope.launch {
+            try {
+                HistoryLoadingTestHook.beforeInitialRoomCollection(applicationContext)
+                database.occurrenceDao().observeHistory().collectLatest { occurrences ->
+                    history = occurrences.map(HistoryOccurrence::toHistoryItem)
+                    historyReadFailed = false
+                    HistoryLoadingTestHook.markInitialRoomEmission(applicationContext)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.e("MainActivity", "History Room collection failed", exception)
+                historyReadFailed = true
             }
         }
     }
@@ -235,6 +253,8 @@ class MainActivity : ComponentActivity() {
                     selectedMedicationId = medicationId
                     pane = NormalAppPane.MEDICATION_DETAILS
                 },
+                readFailed = historyReadFailed,
+                onRetryRead = ::startHistoryCollection,
             )
             return
         }
@@ -690,21 +710,33 @@ internal object HistoryLoadingTestHook {
     private const val DIRECTORY = "m12-history-loading-test-hook"
     private const val ACTIVE = "active"
     private const val HOLD_BEFORE_COLLECTION = "hold-before-collection"
+    private const val FAIL_BEFORE_COLLECTION = "fail-before-collection"
     private const val BEFORE_COLLECTION_REACHED = "before-collection-reached"
     private const val FIRST_ROOM_EMISSION = "first-room-emission"
     private const val HOLD_TIMEOUT_MILLIS = 15_000L
 
-    fun configure(context: Context, holdBeforeCollection: Boolean = false) {
+    fun configure(
+        context: Context,
+        holdBeforeCollection: Boolean = false,
+        failBeforeCollection: Boolean = false,
+    ) {
         reset(context)
         directory(context).mkdirs()
         touch(context, ACTIVE)
         if (holdBeforeCollection) touch(context, HOLD_BEFORE_COLLECTION)
+        if (failBeforeCollection) touch(context, FAIL_BEFORE_COLLECTION)
     }
 
     fun reset(context: Context) { directory(context).deleteRecursively() }
     fun releaseCollection(context: Context) {
         val holdFile = file(context, HOLD_BEFORE_COLLECTION)
         check(!holdFile.exists() || holdFile.delete()) { "M12 test hook release could not clear its hold" }
+    }
+    fun clearCollectionFailure(context: Context) {
+        val failureFile = file(context, FAIL_BEFORE_COLLECTION)
+        check(!failureFile.exists() || failureFile.delete()) {
+            "M40 test hook could not clear its collection failure"
+        }
     }
     fun beforeCollectionReached(context: Context): Boolean =
         file(context, BEFORE_COLLECTION_REACHED).exists()
@@ -714,12 +746,16 @@ internal object HistoryLoadingTestHook {
         if (!file(context, ACTIVE).exists()) return
         withContext(Dispatchers.IO) {
             touch(context, BEFORE_COLLECTION_REACHED)
-            if (!file(context, HOLD_BEFORE_COLLECTION).exists()) return@withContext
-            val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
-            while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
-                if (!file(context, ACTIVE).exists()) return@withContext
-                check(SystemClock.elapsedRealtime() < deadline) { "M12 test hook was not released" }
-                delay(10)
+            if (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+                while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                    if (!file(context, ACTIVE).exists()) return@withContext
+                    check(SystemClock.elapsedRealtime() < deadline) { "M12 test hook was not released" }
+                    delay(10)
+                }
+            }
+            check(!file(context, FAIL_BEFORE_COLLECTION).exists()) {
+                "M40 injected History collection failure"
             }
         }
     }

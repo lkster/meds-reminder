@@ -152,6 +152,8 @@ fun HistoryScreen(
     history: List<HistoryItem>?,
     onBack: () -> Unit,
     onMedicationDetails: (Long) -> Unit,
+    readFailed: Boolean = false,
+    onRetryRead: () -> Unit = {},
 ) {
     var selectedFilter by rememberSaveable { mutableStateOf(HistoryFilter.ALL) }
     var selectedHistoryOccurrenceId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -186,10 +188,16 @@ fun HistoryScreen(
                 )
             }
         }
+        if (history != null && readFailed) {
+            item { Spacer(Modifier.height(16.dp)) }
+            item { HistoryRefreshFailure(onRetryRead) }
+        }
         when {
             history == null -> {
                 item { Spacer(Modifier.height(24.dp)) }
-                item { HistoryLoading() }
+                item {
+                    if (readFailed) HistoryInitialReadFailure(onRetryRead) else HistoryLoading()
+                }
             }
             history.isEmpty() -> {
                 item { Spacer(Modifier.height(64.dp)) }
@@ -463,7 +471,10 @@ private fun HistoryOutcomePill(label: String, color: Color) {
 
 @Composable
 private fun HistoryLoading() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.testTag("history-loading"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text("Loading history\u2026", style = MaterialTheme.typography.bodyMedium)
         repeat(3) {
             Box(
@@ -471,6 +482,45 @@ private fun HistoryLoading() {
                     .background(MaterialTheme.colorScheme.surfaceContainer)
                     .clearAndSetSemantics {},
             )
+        }
+    }
+}
+
+@Composable
+private fun HistoryInitialReadFailure(onRetryRead: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Could not load history",
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text("History is unavailable right now.", style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onRetryRead, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+            Text("Try again")
+        }
+    }
+}
+
+@Composable
+private fun HistoryRefreshFailure(onRetryRead: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "History could not be refreshed.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onRetryRead, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+                Text("Try again")
+            }
         }
     }
 }
