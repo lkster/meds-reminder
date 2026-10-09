@@ -1,9 +1,14 @@
-# Meds Reminder M40
+# Meds Reminder M41
 
 Meds Reminder is an Android-first, local medication reminder. M3 supports multiple medications,
 optional instructions, enable/disable, and one or more fixed local-time schedules per medication.
 Each time selects its own weekdays; all seven selected days is the existing daily behavior. An
 occurrence can be resolved as Taken, Snoozed, or Skipped.
+
+M41 adds an Activity-local medication read-failure and retry state. Initial medication failures
+retain the Medication Library/Details shells with truthful inline Retry; refresh failures preserve
+the last authoritative medication value and add a compact retry notice. Room remains authoritative,
+and no medication mutation, scheduling, or shared loading/retry framework was added.
 
 M40 adds an Activity-local History read-failure and retry state. Initial read failures retain the
 History shell and disabled filters with inline Retry; refresh failures preserve the last authoritative

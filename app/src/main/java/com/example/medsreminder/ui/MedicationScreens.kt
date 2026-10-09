@@ -156,6 +156,8 @@ fun MedicationListScreen(
     deleteDialogState: MedicationDeleteDialogState? = null,
     onDeleteRequested: ((Long, String) -> Unit)? = null,
     onDismissDelete: (() -> Unit)? = null,
+    readFailed: Boolean = false,
+    onRetryRead: () -> Unit = {},
 ) {
     // The dialog is UI state, but its target must remain a stable identity rather than a
     // retained list snapshot. Keeping the display name makes restoration independent of the
@@ -202,7 +204,12 @@ fun MedicationListScreen(
                 )
                 Spacer(Modifier.height(20.dp))
             }
+            if (medications != null && readFailed) {
+                MedicationRefreshFailure("Medications could not be refreshed.", onRetryRead)
+                Spacer(Modifier.height(16.dp))
+            }
             when {
+                medications == null && readFailed -> MedicationInitialReadFailure(onRetryRead)
                 medications == null -> MedicationListLoadingState()
                 medications.isEmpty() -> MedicationListEmptyState(onAdd = onAdd)
                 hasNoSearchMatches -> MedicationSearchEmptyState()
@@ -452,6 +459,42 @@ private fun MedicationListLoadingState() {
 }
 
 @Composable
+private fun MedicationInitialReadFailure(onRetryRead: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Could not load medications",
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text("Medication list is unavailable right now.", style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onRetryRead, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+            Text("Try again")
+        }
+    }
+}
+
+@Composable
+private fun MedicationRefreshFailure(message: String, onRetryRead: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onRetryRead, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+                Text("Try again")
+            }
+        }
+    }
+}
+
+@Composable
 private fun MedicationListEmptyState(onAdd: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("No medications yet", style = MaterialTheme.typography.titleLarge)
@@ -554,6 +597,8 @@ fun MedicationDetailsScreen(
     onDelete: (Long) -> Unit,
     deleteDialogState: MedicationDeleteDialogState? = null,
     onDismissDelete: (() -> Unit)? = null,
+    readFailed: Boolean = false,
+    onRetryRead: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -574,13 +619,16 @@ fun MedicationDetailsScreen(
                 ) { Icon(Icons.Outlined.ArrowBack, contentDescription = null) }
             }
             if (medication == null) {
-                MedicationDetailsLoadingState()
+                if (readFailed) MedicationDetailsInitialReadFailure(onRetryRead, Modifier.weight(1f))
+                else MedicationDetailsLoadingState()
             } else {
                 MedicationDetailsBody(
                     item = medication,
                     onEdit = onEdit,
                     onDeleteRequested = onDeleteRequested,
                     modifier = Modifier.weight(1f),
+                    refreshFailed = readFailed,
+                    onRetryRead = onRetryRead,
                 )
             }
         }
@@ -610,11 +658,34 @@ private fun MedicationDetailsLoadingState() {
 }
 
 @Composable
+private fun MedicationDetailsInitialReadFailure(onRetryRead: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Could not load medication details",
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text("Medication information is unavailable right now.", style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onRetryRead, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+            Text("Try again")
+        }
+    }
+}
+
+@Composable
 private fun MedicationDetailsBody(
     item: MedicationWithTimes,
     onEdit: (MedicationWithTimes) -> Unit,
     onDeleteRequested: (Long, String) -> Unit,
     modifier: Modifier = Modifier,
+    refreshFailed: Boolean = false,
+    onRetryRead: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -624,6 +695,7 @@ private fun MedicationDetailsBody(
             .testTag("medication-details-scroll"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (refreshFailed) MedicationRefreshFailure("Medication details could not be refreshed.", onRetryRead)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 item.medication.name,

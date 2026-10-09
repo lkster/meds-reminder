@@ -1074,6 +1074,125 @@ class MedicationScreensTest {
         }
     }
 
+    @Test
+    fun initialMedicationLibraryReadFailureKeepsShellAndRetries() {
+        var retries = 0
+        var adds = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = null, onHistory = {}, onSettings = {}, onAdd = { adds++ },
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
+                    readFailed = true, onRetryRead = { retries++ },
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("History").assertExists()
+        compose.onNodeWithContentDescription("Settings").assertExists()
+        compose.onNodeWithTag("medication-search").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Add medication").performClick()
+        compose.onNodeWithText("Could not load medications").assertExists()
+        compose.onNodeWithText("Medication list is unavailable right now.").assertExists()
+        compose.onNodeWithText("Loading medications…").assertDoesNotExist()
+        compose.onNodeWithText("No medications yet").assertDoesNotExist()
+        compose.onNodeWithText("Try again").performClick()
+        compose.runOnIdle { assertEquals(1, retries); assertEquals(1, adds) }
+    }
+
+    @Test
+    fun medicationLibraryRefreshFailurePreservesAuthoritativeContentAndRetries() {
+        val item = persistedMedication(WeekdayMask.ALL, id = 71L, name = "Refresh medicine")
+        var retries = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = listOf(item), onHistory = {}, onSettings = {}, onAdd = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {},
+                    readFailed = true, onRetryRead = { retries++ },
+                )
+            }
+        }
+        compose.onNodeWithTag("medication-search").assertIsEnabled().performTextInput("Refresh")
+        compose.onNodeWithText("Refresh medicine").assertExists()
+        compose.onNodeWithText("Medications could not be refreshed.").assertExists()
+        compose.onNodeWithText("Loading medications…").assertDoesNotExist()
+        compose.onNodeWithText("Try again").performClick()
+        compose.runOnIdle { assertEquals(1, retries) }
+    }
+
+    @Test
+    fun authoritativeEmptyMedicationRefreshFailureKeepsConfirmedEmptyState() {
+        compose.setContent {
+            MaterialTheme {
+                MedicationListScreen(
+                    medications = emptyList(), onHistory = {}, onSettings = {}, onAdd = {},
+                    onOpenDetails = {}, onToggle = { _, _ -> }, onDelete = {}, readFailed = true,
+                )
+            }
+        }
+        compose.onNodeWithText("Medications could not be refreshed.").assertExists()
+        compose.onNodeWithText("No medications yet").assertExists()
+        compose.onNodeWithText("Could not load medications").assertDoesNotExist()
+    }
+
+    @Test
+    fun initialMedicationDetailsReadFailureKeepsBackAndRetriesWithoutFacts() {
+        var backs = 0
+        var retries = 0
+        compose.setContent {
+            MaterialTheme {
+                MedicationDetailsScreen(
+                    medication = null, onBack = { backs++ }, onEdit = {}, onDeleteRequested = { _, _ -> }, onDelete = {},
+                    readFailed = true, onRetryRead = { retries++ },
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Could not load medication details").assertExists()
+        compose.onNodeWithText("Medication information is unavailable right now.").assertExists()
+        compose.onNodeWithText("Edit medication").assertDoesNotExist()
+        compose.onNodeWithText("Delete medication").assertDoesNotExist()
+        compose.onNodeWithText("Try again").performClick()
+        compose.runOnIdle { assertEquals(1, backs); assertEquals(1, retries) }
+    }
+
+    @Test
+    fun medicationDetailsRefreshFailurePreservesFactsAndActions() {
+        val item = persistedMedication(WeekdayMask.ALL, id = 72L, name = "Details refresh medicine")
+        compose.setContent {
+            MaterialTheme {
+                MedicationDetailsScreen(
+                    medication = item, onBack = {}, onEdit = {}, onDeleteRequested = { _, _ -> }, onDelete = {}, readFailed = true,
+                )
+            }
+        }
+        compose.onNodeWithText("Medication details could not be refreshed.").assertExists()
+        compose.onNodeWithText("Details refresh medicine").assertExists()
+        compose.onNodeWithText("Edit medication").assertExists()
+        compose.onNodeWithText("Delete medication").assertExists()
+    }
+
+    @Test
+    fun largeTextInitialDetailsFailureKeepsBackAndRetryReachable() {
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2f)) {
+                MaterialTheme {
+                    Box(Modifier.width(360.dp).testTag("m41-details-failure-viewport")) {
+                        MedicationDetailsScreen(null, {}, {}, { _, _ -> }, {}, readFailed = true)
+                    }
+                }
+            }
+        }
+        val viewport = compose.onNodeWithTag("m41-details-failure-viewport").getUnclippedBoundsInRoot()
+        val back = compose.onNodeWithContentDescription("Back").getUnclippedBoundsInRoot()
+        val retry = compose.onNodeWithText("Try again").performScrollTo().getUnclippedBoundsInRoot()
+        assertTrue(back.left >= viewport.left && back.right <= viewport.right)
+        assertTrue(retry.left >= viewport.left && retry.right <= viewport.right)
+        compose.onNodeWithText("Could not load medication details").assertExists()
+        compose.onNodeWithText("Medication information is unavailable right now.").assertExists()
+    }
+
     private fun draftWith(vararg times: EditorTime) = EditorDraft(
         id = 1L,
         name = "Medicine",

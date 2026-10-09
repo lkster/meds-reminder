@@ -81,6 +81,8 @@ class MainActivity : ComponentActivity() {
 
     // Null until this Activity receives its first authoritative Room emission.
     private var medications by mutableStateOf<List<MedicationWithTimes>?>(null)
+    private var medicationReadFailed by mutableStateOf(false)
+    private var medicationCollectionJob: Job? = null
     // Null until this Activity receives its first authoritative Room history emission.
     private var history by mutableStateOf<List<HistoryItem>?>(null)
     private var historyReadFailed by mutableStateOf(false)
@@ -138,17 +140,32 @@ class MainActivity : ComponentActivity() {
         AlarmRingingService.ensureNotificationChannel(this)
         refreshCapabilities()
         refreshAlarmPreferences()
-        lifecycleScope.launch {
-            MedicationListLoadingTestHook.beforeInitialRoomCollection(applicationContext)
-            database.medicationDao().observeAll().collectLatest {
-                medications = it
-                MedicationListLoadingTestHook.markInitialRoomEmission(applicationContext)
-            }
-        }
+        startMedicationCollection()
         startHistoryCollection()
         setContent {
             MedsReminderTheme {
                 Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) { MainContent() }
+            }
+        }
+    }
+
+    private fun startMedicationCollection() {
+        if (medicationCollectionJob?.isActive == true) return
+        medicationReadFailed = false
+        medicationCollectionJob = lifecycleScope.launch {
+            try {
+                MedicationListLoadingTestHook.beforeInitialRoomCollection(applicationContext)
+                database.medicationDao().observeAll().collectLatest { values ->
+                    medications = values
+                    medicationReadFailed = false
+                    MedicationListLoadingTestHook.markInitialRoomEmission(applicationContext)
+                    MedicationListLoadingTestHook.failAfterAuthoritativeEmission(applicationContext)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.e("MainActivity", "Medication Room collection failed", exception)
+                medicationReadFailed = true
             }
         }
     }
@@ -339,6 +356,8 @@ class MainActivity : ComponentActivity() {
                 deleteDialogState = deleteDialog,
                 onDeleteRequested = { id, name -> deleteDialog = MedicationDeleteDialogState(id, name) },
                 onDismissDelete = { if (deleteDialog?.submitting != true) deleteDialog = null },
+                readFailed = medicationReadFailed,
+                onRetryRead = ::startMedicationCollection,
             )
             NormalAppPane.MEDICATION_DETAILS -> MedicationDetailsScreen(
                 medication = if (medications == null) null else selectedMedication,
@@ -357,6 +376,8 @@ class MainActivity : ComponentActivity() {
                 },
                 deleteDialogState = deleteDialog,
                 onDismissDelete = { if (deleteDialog?.submitting != true) deleteDialog = null },
+                readFailed = medicationReadFailed,
+                onRetryRead = ::startMedicationCollection,
             )
             NormalAppPane.SETTINGS -> SettingsScreen(
                 capabilityItems = capabilityItems,
@@ -658,21 +679,38 @@ internal object MedicationListLoadingTestHook {
     private const val DIRECTORY = "m11-medication-list-loading-test-hook"
     private const val ACTIVE = "active"
     private const val HOLD_BEFORE_COLLECTION = "hold-before-collection"
+    private const val FAIL_BEFORE_COLLECTION = "fail-before-collection"
+    private const val FAIL_AFTER_FIRST_EMISSION = "fail-after-first-emission"
     private const val BEFORE_COLLECTION_REACHED = "before-collection-reached"
     private const val FIRST_ROOM_EMISSION = "first-room-emission"
     private const val HOLD_TIMEOUT_MILLIS = 15_000L
 
-    fun configure(context: Context, holdBeforeCollection: Boolean = false) {
+    fun configure(
+        context: Context,
+        holdBeforeCollection: Boolean = false,
+        failBeforeCollection: Boolean = false,
+        failAfterFirstEmission: Boolean = false,
+    ) {
         reset(context)
         directory(context).mkdirs()
         touch(context, ACTIVE)
         if (holdBeforeCollection) touch(context, HOLD_BEFORE_COLLECTION)
+        if (failBeforeCollection) touch(context, FAIL_BEFORE_COLLECTION)
+        if (failAfterFirstEmission) touch(context, FAIL_AFTER_FIRST_EMISSION)
     }
 
     fun reset(context: Context) { directory(context).deleteRecursively() }
     fun releaseCollection(context: Context) {
         val holdFile = file(context, HOLD_BEFORE_COLLECTION)
         check(!holdFile.exists() || holdFile.delete()) { "M11 test hook release could not clear its hold" }
+    }
+    fun clearCollectionFailure(context: Context) {
+        listOf(FAIL_BEFORE_COLLECTION, FAIL_AFTER_FIRST_EMISSION).forEach { key ->
+            val failureFile = file(context, key)
+            check(!failureFile.exists() || failureFile.delete()) {
+                "M41 test hook could not clear its collection failure"
+            }
+        }
     }
     fun beforeCollectionReached(context: Context): Boolean =
         file(context, BEFORE_COLLECTION_REACHED).exists()
@@ -682,18 +720,28 @@ internal object MedicationListLoadingTestHook {
         if (!file(context, ACTIVE).exists()) return
         withContext(Dispatchers.IO) {
             touch(context, BEFORE_COLLECTION_REACHED)
-            if (!file(context, HOLD_BEFORE_COLLECTION).exists()) return@withContext
-            val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
-            while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
-                if (!file(context, ACTIVE).exists()) return@withContext
-                check(SystemClock.elapsedRealtime() < deadline) { "M11 test hook was not released" }
-                delay(10)
+            if (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                val deadline = SystemClock.elapsedRealtime() + HOLD_TIMEOUT_MILLIS
+                while (file(context, HOLD_BEFORE_COLLECTION).exists()) {
+                    if (!file(context, ACTIVE).exists()) return@withContext
+                    check(SystemClock.elapsedRealtime() < deadline) { "M11 test hook was not released" }
+                    delay(10)
+                }
+            }
+            check(!file(context, FAIL_BEFORE_COLLECTION).exists()) {
+                "M41 injected medication collection failure"
             }
         }
     }
 
     fun markInitialRoomEmission(context: Context) {
         if (file(context, ACTIVE).exists()) touch(context, FIRST_ROOM_EMISSION)
+    }
+
+    fun failAfterAuthoritativeEmission(context: Context) {
+        if (file(context, ACTIVE).exists() && file(context, FAIL_AFTER_FIRST_EMISSION).exists()) {
+            error("M41 injected medication collection failure after authoritative emission")
+        }
     }
 
     private fun touch(context: Context, key: String) {
